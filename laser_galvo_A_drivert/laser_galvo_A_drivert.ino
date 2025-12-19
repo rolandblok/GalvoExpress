@@ -1,18 +1,7 @@
+// The microcontroller controls 2 DAC which can control (via opamping) the galvo mirrors.
+// It uses event trigger to do timing of the contours it plots.
+// 
 //
-//    FILE: MCP4725_wave_generator.ino
-//  AUTHOR: Rob Tillaart
-// PURPOSE: demo function generators
-//     URL: https://github.com/RobTillaart/MCP4725
-//     URL: https://github.com/RobTillaart/FunctionGenerator
-//
-//  depending on the platform, the range of "smooth" sinus is limited.
-//  other signals are less difficult so have a slightly larger range.
-//
-//  PLATFORM     SINUS    SQUARE  SAWTOOTH  TRIANGLE
-//  UNO          -100 Hz
-//  ESP32        -200 Hz  -1000   -250      -100
-//
-
 // Manual LM358 OPAMP, including inverter
 // https://www.tinytronics.nl/product_files/000233_Data_Sheet_of_HGSEMI_LM358.pdf
 // https://verstraten-elektronica.blogspot.com/p/op-amp-als-inverter.html
@@ -23,6 +12,8 @@
 //  Laser galvo Instructabel
 // https://www.instructables.com/DIY-STEPDIR-LASER-GALVO-CONTROLLER/
 
+
+// The software was made for Wemos D1 mini, but could easily be adapted for any u-controller
 // Import required libraries
 #if defined(ESP8266)
  #include <ESP8266WiFi.h>
@@ -37,30 +28,28 @@
 
 #include <ESP8266TimerInterrupt.h>
 
-//  frequency
-//  use + - * /  to control it
-uint16_t   freq = 100;
-uint32_t period = 0;
-uint32_t halvePeriod = 0;
-
+#include "patern.hpp"
 
 //  q = square       z = zero
-//  s = sinus        m = mid
+//  s = sinus/circle m = mid
 //  w = sawtooth     h = high
 //  t = stair
 //  r = random
-char waveFrom = 's';
+char waveFrom = 'p';
 
 void(*resetFunc) (void) = 0; 
+
+#define PIN_LASER_ENABLE D3
 
 MCP4725 MCP_1(0x60);
 MCP4725 MCP_2(0x61);
 uint16_t count;
 uint32_t lastTime = 0;
+#define MCP_MAX_BITS 4095
 
 
 //  LOOKUP TABLE SINE
-#define SINE_STEPS 361  
+#define SINE_STEPS 144  
 uint16_t sine[SINE_STEPS];
 uint32_t sine_idx = 0;
 
@@ -70,51 +59,98 @@ ESP8266Timer ITimer;
 uint32_t tick_counter = 0;
 uint32_t ticks_per_step = 10; // adjust this to change speed
 
-bool toggle = false;
+
+uint32 IPS_counter = 0;
+uint32 TPS_counter = 0;
+uint32 FPS_counter = 0;  
+
+
+int  sqr_counter = 0;
 void IRAM_ATTR TimerHandler()
 {
 
+    IPS_counter++;
     tick_counter++; // increment the tick counter
 
     if (tick_counter >= ticks_per_step) { // if we reached the ticks 
+      TPS_counter++;
       tick_counter = 0; // reset the tick counter
       
       sine_idx++;
       if (sine_idx >= SINE_STEPS) sine_idx = 0;
+      uint32_t sine_idx_1 = sine_idx;
+      uint32_t sine_idx_2 = (sine_idx + SINE_STEPS / 4) % SINE_STEPS;
 
       switch (waveFrom)
       {
-        case 'q':
-          if (toggle) MCP_1.setValue(4095);
-          else MCP_1.setValue(0);
-          toggle = !toggle;
+        case 'p': // patern
+          int x, y;
+          bool laser_on;
+          patern_get_next_step(x, y, laser_on);
+
+          // digitalWrite(PIN_LASER_ENABLE, laser_on ? HIGH : LOW);
+          // fast switch laser on/off
+          if (laser_on)
+            GPOS = (1 << PIN_LASER_ENABLE);
+          else
+            GPOC = (1 << PIN_LASER_ENABLE);
+          
+          MCP_1.setValue(x);
+          MCP_2.setValue(y);
           break;
-        case 'w':
-          MCP_1.setValue(sine_idx * 4095 / SINE_STEPS); 
+
+        case 'q':  // draw square wave
+          sqr_counter++;
+          if (sqr_counter >= 4) sqr_counter = 0;
+          if (sqr_counter == 0) {
+            MCP_1.setValue(MCP_MAX_BITS);
+            MCP_2.setValue(MCP_MAX_BITS);
+          } else if (sqr_counter == 1) {
+            MCP_1.setValue(MCP_MAX_BITS);
+            MCP_2.setValue(0);
+          } else if (sqr_counter == 2) {
+            MCP_1.setValue(0);
+            MCP_2.setValue(0);
+          } else if (sqr_counter == 3) {
+            MCP_1.setValue(0);
+            MCP_2.setValue(MCP_MAX_BITS);
+          }
+
           break;
-        case 't':
+        case 'w': // sawtooth
+          MCP_1.setValue(sine_idx * MCP_MAX_BITS / SINE_STEPS); 
+          MCP_2.setValue(sine_idx * MCP_MAX_BITS / SINE_STEPS);
+          break;
+        case 't':  //  stair
           if (sine_idx < SINE_STEPS / 2) {
             // Ramp up: 0 to 4095
-            MCP_1.setValue(sine_idx * 2 * 4095 / SINE_STEPS);
+            MCP_1.setValue(sine_idx * 2 * MCP_MAX_BITS / SINE_STEPS);
+            MCP_2.setValue(sine_idx * 2 * MCP_MAX_BITS / SINE_STEPS);
           } else {
             // Ramp down: 4095 to 0
-            MCP_1.setValue(4095 - ((sine_idx - SINE_STEPS / 2) * 2 * 4095 / SINE_STEPS));
+            MCP_1.setValue(MCP_MAX_BITS - ((sine_idx - SINE_STEPS / 2) * 2 * MCP_MAX_BITS / SINE_STEPS));
+            MCP_2.setValue(MCP_MAX_BITS - ((sine_idx - SINE_STEPS / 2) * 2 * MCP_MAX_BITS / SINE_STEPS));
           }
           break;
-        case 'r':
-          MCP_1.setValue(random(4096));
+        case 'r': // random
+          MCP_1.setValue(random(MCP_MAX_BITS + 1));
+          MCP_2.setValue(random(MCP_MAX_BITS + 1));
           break;
         case 'z':  //  zero
           MCP_1.setValue(0);
+          MCP_2.setValue(0);
           break;
         case 'h':  //  high
-          MCP_1.setValue(4095);
+          MCP_1.setValue(MCP_MAX_BITS);
+          MCP_2.setValue(MCP_MAX_BITS);
           break;
         case 'm':  //  mid
-          MCP_1.setValue(2047);
+          MCP_1.setValue(MCP_MAX_BITS / 2);
+          MCP_2.setValue(MCP_MAX_BITS / 2);
           break;
         default:
-        case 's':
+        case 's': // draw circle (sine wave)
+          MCP_2.setValue(sine[sine_idx_2]); //  fetch from lookup table
           MCP_1.setValue(sine[sine_idx]);   //  fetch from lookup table
           break;
       }
@@ -126,6 +162,11 @@ void setup()
 {
   Serial.begin(115200);
   while(!Serial);
+
+  patern_setup();
+
+  pinMode(PIN_LASER_ENABLE, OUTPUT);
+  digitalWrite(PIN_LASER_ENABLE, HIGH); // Enable laser driver (active HIGH)
 
   WiFi.mode(WIFI_OFF);
   WiFi.forceSleepBegin();
@@ -142,11 +183,12 @@ void setup()
   //  fill table
   for (int i = 0; i < SINE_STEPS; i++)
   {
-    sine[i] = 2047 + round(2047 * sin(i * PI / 180));
+    sine[i] = MCP_MAX_BITS / 2 + round((MCP_MAX_BITS / 2) * sin((2 * PI * i) / SINE_STEPS));
   }
 
   //  init MCP4725
   MCP_1.begin();
+  MCP_2.begin();
   Wire.setClock(400000);
 
   //  scan I2C bus for devices
@@ -205,7 +247,7 @@ void setup()
 
 void loop()
 {
-
+  FPS_counter++;  
   if (Serial.available())
   {
     int c = Serial.read();
@@ -227,15 +269,23 @@ void loop()
         ticks_per_step *= 10;
         ticks_per_step += (c - '0');
         break;
-      case 'c':
-        ticks_per_step = 0;
-        break;
       case 'A':
         break;
       case 'a':
         break;
-      case 'q':
       case 's':
+        ticks_per_step = 10;
+        patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
+        Serial.println("# Square patern created");
+        waveFrom = 'p';
+        break;
+      case 'c':
+        ticks_per_step = 10;
+        patern_create_circle();
+        Serial.println("# Circle patern created");
+        waveFrom = 'p';
+        break;
+      case 'q':
       case 'w':
       case 't':
       case 'r':
@@ -244,8 +294,13 @@ void loop()
       case 'h':
         waveFrom = c;
         break;
+      case 'x':
+        patern_double_square( true, false);
+        Serial.println("# Double square patern created (one on, two off)");
+        waveFrom = 'p';
+        break;
       case 'R':
-        Serial.println("REBOOT");
+        Serial.println("# REBOOT");
         Serial.end();  //clears the serial monitor  if used
         resetFunc();
         delay(1000);
@@ -253,9 +308,26 @@ void loop()
       default:
         break;
     }
-    Serial.print(ticks_per_step);
-    Serial.println();
+    Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
   }
+
+  static uint32_t lastTime = millis();
+  if (millis() - lastTime >= 1000)
+  {
+    int usPF = (int)(1e6/FPS_counter);
+    int usPT = (int)(1e6/TPS_counter);
+    int usPI = (int)(1e6/IPS_counter);
+
+    lastTime = millis();
+    Serial.print("# usPF: " + String(usPF) + ", ");
+    Serial.print(" usPT: " + String(usPT) + ", ");
+    Serial.print(" usPI: " + String(usPI) + ", ");
+    Serial.print(" ticks_per_step: " + String(ticks_per_step) + "\n");
+    TPS_counter = 0;
+    IPS_counter = 0;
+    FPS_counter = 0;
+  }
+
 }
 
 

@@ -1,11 +1,11 @@
 // The microcontroller controls 2 DAC which can control (via opamping) the galvo mirrors.
 // It uses event trigger to do timing of the contours it plots.
-// 
+//
 //
 // Manual LM358 OPAMP, including inverter
 // https://www.tinytronics.nl/product_files/000233_Data_Sheet_of_HGSEMI_LM358.pdf
 // https://verstraten-elektronica.blogspot.com/p/op-amp-als-inverter.html
-// 
+//
 // Opamp Amplifier
 // https://verstraten-elektronica.blogspot.com/p/op-amp-als-niet-inverterende-versterker.html
 
@@ -16,11 +16,11 @@
 // The software was made for Wemos D1 mini, but could easily be adapted for any u-controller
 // Import required libraries
 #if defined(ESP8266)
- #include <ESP8266WiFi.h>
+#include <ESP8266WiFi.h>
 #elif defined(ESP32)
- #include <WiFi.h>
+#include <WiFi.h>
 #else
- #error "This ain't a ESP8266 or ESP32, !"
+#error "This ain't a ESP8266 or ESP32, !"
 #endif
 
 #include "MCP4725.h"
@@ -37,7 +37,7 @@
 //  r = random
 char waveFrom = 'p';
 
-void(*resetFunc) (void) = 0; 
+void (*resetFunc)(void) = 0;
 
 #define PIN_LASER_ENABLE D3
 
@@ -49,7 +49,7 @@ uint32_t lastTime = 0;
 
 
 //  LOOKUP TABLE SINE
-#define SINE_STEPS 144  
+#define SINE_STEPS 144
 uint16_t sine[SINE_STEPS];
 uint32_t sine_idx = 0;
 
@@ -57,116 +57,64 @@ uint32_t sine_idx = 0;
 #define TICK_TIME_US (10)  // 10 microseconds
 ESP8266Timer ITimer;
 uint32_t tick_counter = 0;
-uint32_t ticks_per_step = 10; // adjust this to change speed
+uint32_t ticks_per_step = 10;  // adjust this to change speed
 
 
 uint32 IPS_counter = 0;
 uint32 TPS_counter = 0;
-uint32 FPS_counter = 0;  
+uint32 FPS_counter = 0;
 
 
-int  sqr_counter = 0;
-void IRAM_ATTR TimerHandler()
-{
+int sqr_counter = 0;
+void IRAM_ATTR TimerHandler() {
 
-    IPS_counter++;
-    tick_counter++; // increment the tick counter
+  IPS_counter++;
+  tick_counter++;  // increment the tick counter
 
-    if (tick_counter >= ticks_per_step) { // if we reached the ticks 
-      TPS_counter++;
-      tick_counter = 0; // reset the tick counter
-      
-      sine_idx++;
-      if (sine_idx >= SINE_STEPS) sine_idx = 0;
-      uint32_t sine_idx_1 = sine_idx;
-      uint32_t sine_idx_2 = (sine_idx + SINE_STEPS / 4) % SINE_STEPS;
+  if (tick_counter >= ticks_per_step) {  // if we reached the ticks
+    TPS_counter++;
+    tick_counter = 0;  // reset the tick counter
 
-      switch (waveFrom)
-      {
-        case 'p': // patern
-          int x, y;
-          bool laser_on;
-          patern_get_next_step(x, y, laser_on);
+    sine_idx++;
+    if (sine_idx >= SINE_STEPS) sine_idx = 0;
+    uint32_t sine_idx_1 = sine_idx;
+    uint32_t sine_idx_2 = (sine_idx + SINE_STEPS / 4) % SINE_STEPS;
 
-          // digitalWrite(PIN_LASER_ENABLE, laser_on ? HIGH : LOW);
-          // fast switch laser on/off
-          if (laser_on)
-            GPOS = (1 << PIN_LASER_ENABLE);
-          else
-            GPOC = (1 << PIN_LASER_ENABLE);
-          
-          MCP_1.setValue(x);
-          MCP_2.setValue(y);
-          break;
+    switch (waveFrom) {
+      case 'p':  // patern
+        int x, y;
+        bool laser_on;
+        patern_get_next_step(x, y, laser_on);
 
-        case 'q':  // draw square wave
-          sqr_counter++;
-          if (sqr_counter >= 4) sqr_counter = 0;
-          if (sqr_counter == 0) {
-            MCP_1.setValue(MCP_MAX_BITS);
-            MCP_2.setValue(MCP_MAX_BITS);
-          } else if (sqr_counter == 1) {
-            MCP_1.setValue(MCP_MAX_BITS);
-            MCP_2.setValue(0);
-          } else if (sqr_counter == 2) {
-            MCP_1.setValue(0);
-            MCP_2.setValue(0);
-          } else if (sqr_counter == 3) {
-            MCP_1.setValue(0);
-            MCP_2.setValue(MCP_MAX_BITS);
-          }
+        // digitalWrite(PIN_LASER_ENABLE, laser_on ? HIGH : LOW);
+        // fast switch laser on/off
+        if (laser_on)
+          GPOS = (1 << PIN_LASER_ENABLE);
+        else
+          GPOC = (1 << PIN_LASER_ENABLE);
 
-          break;
-        case 'w': // sawtooth
-          MCP_1.setValue(sine_idx * MCP_MAX_BITS / SINE_STEPS); 
-          MCP_2.setValue(sine_idx * MCP_MAX_BITS / SINE_STEPS);
-          break;
-        case 't':  //  stair
-          if (sine_idx < SINE_STEPS / 2) {
-            // Ramp up: 0 to 4095
-            MCP_1.setValue(sine_idx * 2 * MCP_MAX_BITS / SINE_STEPS);
-            MCP_2.setValue(sine_idx * 2 * MCP_MAX_BITS / SINE_STEPS);
-          } else {
-            // Ramp down: 4095 to 0
-            MCP_1.setValue(MCP_MAX_BITS - ((sine_idx - SINE_STEPS / 2) * 2 * MCP_MAX_BITS / SINE_STEPS));
-            MCP_2.setValue(MCP_MAX_BITS - ((sine_idx - SINE_STEPS / 2) * 2 * MCP_MAX_BITS / SINE_STEPS));
-          }
-          break;
-        case 'r': // random
-          MCP_1.setValue(random(MCP_MAX_BITS + 1));
-          MCP_2.setValue(random(MCP_MAX_BITS + 1));
-          break;
-        case 'z':  //  zero
-          MCP_1.setValue(0);
-          MCP_2.setValue(0);
-          break;
-        case 'h':  //  high
-          MCP_1.setValue(MCP_MAX_BITS);
-          MCP_2.setValue(MCP_MAX_BITS);
-          break;
-        case 'm':  //  mid
-          MCP_1.setValue(MCP_MAX_BITS / 2);
-          MCP_2.setValue(MCP_MAX_BITS / 2);
-          break;
-        default:
-        case 's': // draw circle (sine wave)
-          MCP_2.setValue(sine[sine_idx_2]); //  fetch from lookup table
-          MCP_1.setValue(sine[sine_idx]);   //  fetch from lookup table
-          break;
-      }
+        MCP_1.setValue(x);
+        MCP_2.setValue(y);
+        break;
+
+      case 'r':  // random
+        MCP_1.setValue(random(MCP_MAX_BITS + 1));
+        MCP_2.setValue(random(MCP_MAX_BITS + 1));
+        break;
     }
+  }
 }
 
 
-void setup()
-{
+void setup() {
   Serial.begin(115200);
-  while(!Serial);
+  while (!Serial)
+    ;
 
   patern_setup();
 
   pinMode(PIN_LASER_ENABLE, OUTPUT);
-  digitalWrite(PIN_LASER_ENABLE, HIGH); // Enable laser driver (active HIGH)
+  digitalWrite(PIN_LASER_ENABLE, HIGH);  // Enable laser driver (active HIGH)
 
   WiFi.mode(WIFI_OFF);
   WiFi.forceSleepBegin();
@@ -181,8 +129,7 @@ void setup()
   //  Wire.setClock(3400000);
 
   //  fill table
-  for (int i = 0; i < SINE_STEPS; i++)
-  {
+  for (int i = 0; i < SINE_STEPS; i++) {
     sine[i] = MCP_MAX_BITS / 2 + round((MCP_MAX_BITS / 2) * sin((2 * PI * i) / SINE_STEPS));
   }
 
@@ -213,20 +160,18 @@ void setup()
   }
 
   MCP_1.setValue(0);
-  if (!MCP_1.isConnected())
-  {
+  if (!MCP_1.isConnected()) {
     Serial.println(" 4725 not connected!");
   }
   MCP_2.setValue(0);
-  if (!MCP_2.isConnected())
-  {
+  if (!MCP_2.isConnected()) {
     Serial.println("MCP_2 4725 not connected!");
   }
 
   // interval (in hz)
-  if ( ITimer.attachInterruptInterval(TICK_TIME_US, TimerHandler)) {
+  if (ITimer.attachInterruptInterval(TICK_TIME_US, TimerHandler)) {
     Serial.println("# interrupt timer started");
-  } else{
+  } else {
     Serial.println("# interrupt timer start failed");
   }
 
@@ -237,22 +182,20 @@ void setup()
   // timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
   // timer1_write(TICK_TIME_US);   // <-- shortest stable interval
 
+  patern_create_circle();
+  waveFrom = 'p';
+
 
   Serial.println("# MCP_1 and MCP_2  connected");
   Serial.println("# commands: + - * / 0-9 c A a q s w t r z m h");
-  
-
 }
 
 
-void loop()
-{
-  FPS_counter++;  
-  if (Serial.available())
-  {
+void loop() {
+  FPS_counter++;
+  if (Serial.available()) {
     int c = Serial.read();
-    switch (c)
-    {
+    switch (c) {
       case '+':
         ticks_per_step++;
         break;
@@ -274,28 +217,38 @@ void loop()
       case 'a':
         break;
       case 's':
-        ticks_per_step = 10;
         patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
         Serial.println("# Square patern created");
         waveFrom = 'p';
         break;
       case 'c':
-        ticks_per_step = 10;
         patern_create_circle();
         Serial.println("# Circle patern created");
         waveFrom = 'p';
         break;
       case 'q':
-      case 'w':
-      case 't':
+        patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
+        Serial.println("# Square patern created");
+        waveFrom = 'p';
+        break;
       case 'r':
-      case 'z':
-      case 'm':
-      case 'h':
+        waveFrom = 'r';
+        Serial.println("# Random wave selected");
+        break;
+      case 'z':  //zero
+        patern_create_point(0, 0, false);
+        waveFrom = c;
+        break;
+      case 'm':  // mid
+        patern_create_point(MCP_MAX_BITS / 2, MCP_MAX_BITS / 2, false);
+        waveFrom = c;
+        break;
+      case 'h':  // highest point
+        patern_create_point(MCP_MAX_BITS, MCP_MAX_BITS, false);
         waveFrom = c;
         break;
       case 'x':
-        patern_double_square( true, false);
+        patern_double_square(true, true);
         Serial.println("# Double square patern created (one on, two off)");
         waveFrom = 'p';
         break;
@@ -312,24 +265,23 @@ void loop()
   }
 
   static uint32_t lastTime = millis();
-  if (millis() - lastTime >= 1000)
-  {
-    int usPF = (int)(1e6/FPS_counter);
-    int usPT = (int)(1e6/TPS_counter);
-    int usPI = (int)(1e6/IPS_counter);
+  if (millis() - lastTime >= 1000) {
+    int usPF = (int)(1e6 / FPS_counter);
+    int usPT = (int)(1e6 / TPS_counter);
+    int usPI = (int)(1e6 / IPS_counter);
+    double paterns_per_second = TPS_counter / patern_get_length();
 
     lastTime = millis();
     Serial.print("# usPF: " + String(usPF) + ", ");
     Serial.print(" usPT: " + String(usPT) + ", ");
     Serial.print(" usPI: " + String(usPI) + ", ");
-    Serial.print(" ticks_per_step: " + String(ticks_per_step) + "\n");
+    Serial.print(" ticks_per_step: " + String(ticks_per_step) + ",");
+    Serial.print(" paterns_per_second: " + String(paterns_per_second, 2) + "\n");
     TPS_counter = 0;
     IPS_counter = 0;
     FPS_counter = 0;
   }
-
 }
 
 
 //  -- END OF FILE --
-

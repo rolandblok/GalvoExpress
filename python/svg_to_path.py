@@ -153,6 +153,8 @@ def svg_to_svg_path(svg_file):
 # function to create TK window that scales the SVG and draws the path data
 def display_svg_path(paths, min_max):
     import tkinter as tk
+    from tkinter import filedialog
+    import serial.tools.list_ports
     
     WIDTH = 800
     HEIGHT = 600
@@ -184,9 +186,11 @@ def display_svg_path(paths, min_max):
         for i in range(len(path)):
             path[i] = (path[i][0], height - path[i][1]) 
 
-    # Create a Tkinter window
+# Create a Tkinter window
     root = tk.Tk()
     root.title("SVG Path Display")
+    
+    # Create canvas
     canvas = tk.Canvas(root, width=width, height=height, bg='white')
     canvas.pack()
 
@@ -195,6 +199,42 @@ def display_svg_path(paths, min_max):
         for i in range(len(path) - 1):
             canvas.create_line(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1], fill='black', width=2)
 
+    # Create a frame for controls
+    control_frame = tk.Frame(root)
+    control_frame.pack(fill=tk.X, padx=10, pady=10)
+
+    # Upload button
+    def upload_svg_to_com():
+        com_port = com_var.get()
+        if com_port == "No COM ports available":
+            print("No COM port selected.")
+            return
+        try:
+            ser = serial.Serial(com_port, 115200, timeout=1)
+            print(f"Opened COM port: {com_port}")
+            for path in paths:
+                for point in path:
+                    command = f"G1 X{point[0]:.2f} Y{point[1]:.2f}\n"
+                    ser.write(command.encode('utf-8'))
+                    response = ser.readline().decode('utf-8').strip()
+                    print(f"Sent: {command.strip()}, Received: {response}")
+            ser.close()
+            print("Finished uploading SVG path data.")
+        except Exception as e:
+            print(f"Error: {e}")
+
+    upload_button = tk.Button(control_frame, text="Upload SVG", command=upload_svg_to_com)
+    upload_button.pack(side=tk.LEFT, padx=5)
+
+    # COM port dropdown
+    com_ports = [port.device for port in serial.tools.list_ports.comports()]
+    if not com_ports:
+        com_ports = ["No COM ports available"]
+    
+    tk.Label(control_frame, text="COM Port:").pack(side=tk.LEFT, padx=5)
+    com_var = tk.StringVar(value=com_ports[0])
+    com_dropdown = tk.OptionMenu(control_frame, com_var, *com_ports)
+    com_dropdown.pack(side=tk.LEFT, padx=5)
     root.mainloop()
 
 # Example usage

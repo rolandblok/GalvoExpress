@@ -194,74 +194,59 @@ void setup() {
 void loop() {
   FPS_counter++;
   if (Serial.available()) {
-    int c = Serial.read();
-    switch (c) {
-      case '+':
+    String input = Serial.readStringUntil('\n');
+    if (input.equals("+")){
         ticks_per_step++;
-        break;
-      case '-':
+        Serial.println("# ticks_per_step increased by 1");
+        Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
+   } else if (input.equals("-")){ 
         ticks_per_step--;
-        break;
-      case '*':
+        Serial.println("# ticks_per_step decreased by 1");
+        Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
+   } else if (input.equals("*")){
         ticks_per_step *= 10;
-        break;
-      case '/':
+        Serial.println("# ticks_per_step multiplied by 10");
+        Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
+   } else if (input.equals("/")){ 
         ticks_per_step /= 10;
-        break;
-      case '0' ... '9':
-        ticks_per_step *= 10;
-        ticks_per_step += (c - '0');
-        break;
-      case 'A':
-        break;
-      case 'a':
-        break;
-      case 's':
+        Serial.println("# ticks_per_step divided by 10");
+        Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
+   } else if (input.equals("s")) {
         patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
         Serial.println("# Square patern created");
         waveFrom = 'p';
-        break;
-      case 'c':
+    } else if (input.equals("c")) {
         patern_create_circle();
         Serial.println("# Circle patern created");
         waveFrom = 'p';
-        break;
-      case 'q':
+    } else if (input.equals("q")) {
         patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
         Serial.println("# Square patern created");
         waveFrom = 'p';
-        break;
-      case 'r':
+    } else if (input.equals("r")) {
         waveFrom = 'r';
         Serial.println("# Random wave selected");
-        break;
-      case 'z':  //zero
+    } else if (input.equals("z")) {  //zero
         patern_create_point(0, 0, false);
-        waveFrom = c;
-        break;
-      case 'm':  // mid
+        waveFrom = 'c';
+    } else if (input.equals("m")) {  // mid
         patern_create_point(MCP_MAX_BITS / 2, MCP_MAX_BITS / 2, false);
-        waveFrom = c;
-        break;
-      case 'h':  // highest point
+        waveFrom = 'c';
+    } else if (input.equals("h")) {  // highest point
         patern_create_point(MCP_MAX_BITS, MCP_MAX_BITS, false);
-        waveFrom = c;
-        break;
-      case 'x':
+        waveFrom = 'c';
+    } else if (input.equals("x")) {
         patern_double_square(true, true);
         Serial.println("# Double square patern created (one on, two off)");
         waveFrom = 'p';
-        break;
-      case 'R':
+    } else if (input.equals("REBOOT")) {
         Serial.println("# REBOOT");
         Serial.end();  //clears the serial monitor  if used
         resetFunc();
         delay(1000);
-        break;
-      default:
-        break;
+    } else {
+      Serial.println("# Unknown command: " + input);
     }
-    Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
   }
 
   static uint32_t lastTime = millis();

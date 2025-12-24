@@ -19,7 +19,8 @@ struct patern_point {
 
 int patern_index = 0;
 vector<patern_point> patern_points;
-bool upload_patern_active = false;  
+
+
 
 void patern_setup()
 {
@@ -100,13 +101,6 @@ void patern_get_next_step(int & x, int & y, bool &laser_on)
         laser_on = true;
         return;
     }
-    if (upload_patern_active)
-    {
-        x = MAX/2;
-        y = MAX/2;
-        laser_on = true;
-        return;
-    }
 
     x = patern_points[patern_index].x;
     y = patern_points[patern_index].y;
@@ -116,39 +110,35 @@ void patern_get_next_step(int & x, int & y, bool &laser_on)
     return;
 }
 
+vector<patern_point> patern_points_upload;
 
 void patern_upload_start()
 {
-    patern_index = 0;
-    patern_points.clear();
-    upload_patern_active = true;
+    patern_points_upload.clear();
 }
-
 
 void patern_upload_step(int x, int y, bool laser_on)
 {
-    if (upload_patern_active)
-    {
-        patern_points.push_back({x, y, laser_on});
-    }
+    patern_points_upload.push_back({x, y, laser_on});
 }
 void patern_upload_stop()
 {
-    upload_patern_active = false;
     // log the patern to serial
     Serial.print("# Patern uploaded, length: ");
-    Serial.println(patern_points.size());
-    for (size_t i = 0; i < patern_points.size(); i++)
+    Serial.println(patern_points_upload.size());
+    for (size_t i = 0; i < patern_points_upload.size(); i++)
     {
         Serial.print("# ");
         Serial.print(i);
         Serial.print(": x=");
-        Serial.print(patern_points[i].x);
+        Serial.print(patern_points_upload[i].x);
         Serial.print(", y=");
-        Serial.print(patern_points[i].y);
+        Serial.print(patern_points_upload[i].y);
         Serial.print(", laser_on=");
-        Serial.println(patern_points[i].laser_on ? "true" : "false");
+        Serial.println(patern_points_upload[i].laser_on ? "true" : "false");
     }
+    patern_points = patern_points_upload;
+    patern_index = 0;
 
 }
 

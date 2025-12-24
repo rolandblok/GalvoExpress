@@ -187,15 +187,41 @@ void setup() {
 
 
   Serial.println("# MCP_1 and MCP_2  connected");
-  Serial.println("# commands: + - * / 0-9 c A a q s w t r z m h");
 }
 
 
 void loop() {
   FPS_counter++;
+  static bool uploading = false;
   if (Serial.available()) {
     String input = Serial.readStringUntil('\n');
-    if (input.equals("+")){
+    if (uploading) {
+      if (input.equals("upload_end")) {
+        uploading = false;
+        Serial.println("# Uploading paterns mode deactivated.");
+        patern_upload_stop();
+      } else {
+        // format "x,y,laser_on", example: "2048,1024,TRUE"
+        int commaIndex = input.indexOf(',');
+        int commaIndex2 = input.indexOf(',', commaIndex + 1);
+        if (commaIndex != -1 && commaIndex2 != -1) {
+          int x = input.substring(0, commaIndex).toInt();
+          int y = input.substring(commaIndex + 1, commaIndex2).toInt();
+          String laserOnStr = input.substring(commaIndex2 + 1);
+          bool laser_on = (laserOnStr.equalsIgnoreCase("TRUE"));
+          patern_upload_step(x, y, laser_on);
+        } else {
+          Serial.println("# Invalid upload format. Use: x,y,laser_on");
+        }
+      }
+    
+    // no upload in progress, checking commands
+    }  else if (input.equals("upload_start")) {
+        Serial.println("# Uploading paterns mode activated. Send number of points:");
+        uploading = true;
+        patern_upload_start();
+
+    } else if (input.equals("+")){
         ticks_per_step++;
         Serial.println("# ticks_per_step increased by 1");
         Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
@@ -239,7 +265,7 @@ void loop() {
         patern_double_square(true, true);
         Serial.println("# Double square patern created (one on, two off)");
         waveFrom = 'p';
-    } else if (input.equals("REBOOT")) {
+    }else if (input.equals("REBOOT")) {
         Serial.println("# REBOOT");
         Serial.end();  //clears the serial monitor  if used
         resetFunc();

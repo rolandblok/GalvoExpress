@@ -59,6 +59,10 @@ def svg_to_svg_path(svg_file):
                     current_pos = (x, y)
                     start_pos = (x, y)
                     update_bounds(x, y)
+                    # if path_data is not empty, start a new path
+                    if len(path_data) > 0:
+                        paths.append(path_data)
+                        path_data = []
                     path_data.append(current_pos)
                     i += 3
                 elif cmd == 'm':
@@ -67,6 +71,10 @@ def svg_to_svg_path(svg_file):
                     current_pos = (x, y)
                     start_pos = (x, y)
                     update_bounds(x, y)
+                    # if path_data is not empty, start a new path
+                    if len(path_data) > 0:
+                        paths.append(path_data)
+                        path_data = []
                     path_data.append(current_pos)
                     i += 3
                 elif cmd == 'L':

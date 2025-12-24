@@ -190,12 +190,21 @@ void setup() {
 void loop() {
   FPS_counter++;
   static bool uploading = false;
+  static bool uploading_first_line = true;
+  static int  uploading_previous_x = 0;
+  static int  uploading_previous_y = 0;
+  static int  uploading_first_x = 0;
+  static int  uploading_first_y = 0;
+  static bool uploading_first_laser_on = false;
   if (Serial.available()) {
     String input = Serial.readStringUntil('\n');
     if (uploading) {
       if (input.equals("upload_end")) {
         uploading = false;
         Serial.println("# Uploading paterns mode deactivated.");
+        // add line back to first point
+        patern_add_line(uploading_previous_x, uploading_previous_y, uploading_first_x, uploading_first_y, uploading_first_laser_on);
+        // Serial.println("# Closing line to first point: " + String(uploading_first_x) + "," + String(uploading_first_y) + "," + String(uploading_first_laser_on));
         patern_upload_stop();
       } else {
         // format "x,y,laser_on", example: "2048,1024,TRUE"
@@ -206,9 +215,25 @@ void loop() {
           int y = input.substring(commaIndex + 1, commaIndex2).toInt();
           String laserOnStr = input.substring(commaIndex2 + 1);
           bool laser_on = (laserOnStr.equalsIgnoreCase("TRUE"));
-          patern_upload_step(x, y, laser_on);
+
+          if (uploading_first_line) {
+            uploading_previous_x = x;
+            uploading_previous_y = y;
+            uploading_first_x = x;
+            uploading_first_y = y;
+            uploading_first_laser_on = laser_on;
+            uploading_first_line = false;
+            // Serial.println("# First point uploaded.: " + String(x) + "," + String(y) + "," + String(laser_on));
+          } else {
+            // add line from previous point to current point
+            patern_add_line(uploading_previous_x, uploading_previous_y, x, y, laser_on);
+            uploading_previous_x = x;
+            uploading_previous_y = y;
+            // Serial.println("# Point uploaded.: " + String(x) + "," + String(y) + "," + String(laser_on));
+          }
         } else {
-          Serial.println("# Invalid upload format. Use: x,y,laser_on");
+          
+          Serial.println("# Invalid upload format. Use: x,y,laser_on, not: " + input);   
         }
       }
     
@@ -217,6 +242,7 @@ void loop() {
         Serial.println("# Uploading paterns mode activated. Send number of points:");
         uploading = true;
         patern_upload_start();
+        uploading_first_line = true;
 
     } else if (input.equals("+")){
         ticks_per_step++;

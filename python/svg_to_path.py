@@ -1,6 +1,7 @@
 
 
 #create a cubocbezier, and interpolate points along the curve
+from asyncio import sleep
 import numpy as np
 def cubic_bezier(p0, p1, p2, p3, num_points=10):
     t = np.linspace(0, 1, num_points)
@@ -49,6 +50,10 @@ def svg_to_svg_path(svg_file):
                 print(commands[i])
                 # if the command is a float, repeat the last command
                 if re.match(r'-?\d*\.?\d+', commands[i]):
+                    if cmd == 'M':
+                        cmd = 'L'
+                    elif cmd == 'm':
+                        cmd = 'l'
                     commands.insert(i, cmd)
 
                 cmd = commands[i]
@@ -62,7 +67,7 @@ def svg_to_svg_path(svg_file):
                     # if path_data is not empty, start a new path
                     if len(path_data) > 0:
                         paths.append(path_data)
-                        path_data = []
+                    path_data = []
                     path_data.append(current_pos)
                     i += 3
                 elif cmd == 'm':
@@ -158,14 +163,7 @@ def svg_to_svg_path(svg_file):
     doc.unlink()
     return paths, (bounds_min, bounds_max)
 
-# function to create TK window that scales the SVG and draws the path data
-def display_svg_path(paths, min_max):
-    import tkinter as tk
-    from tkinter import filedialog
-    import serial.tools.list_ports
-    
-    WIDTH = 800
-    HEIGHT = 600
+def scale_svg_paths(paths_in, min_max, WIDTH=800, HEIGHT=600):
 
     # create a scaling factor to fit the SVG into the window
 # create a scaling factor to fit the SVG into the window
@@ -181,11 +179,11 @@ def display_svg_path(paths, min_max):
     y_offset = -bounds_min[1] * scale + 10
 
     scaled_paths = []
-    for path in paths:
+    for path in paths_in:
         scaled_path = []
         for point in path:
-            x = point[0] * scale + x_offset
-            y = point[1] * scale + y_offset
+            x = int(point[0] * scale + x_offset)
+            y = int(point[1] * scale + y_offset)
             scaled_path.append((x, y))
         scaled_paths.append(scaled_path)
 
@@ -194,6 +192,18 @@ def display_svg_path(paths, min_max):
         for i in range(len(path)):
             path[i] = (path[i][0], height - path[i][1]) 
 
+    return scaled_paths
+
+# function to create TK window that scales the SVG and draws the path data
+def display_svg_path(paths, min_max):
+    import tkinter as tk
+    from tkinter import filedialog
+    import serial.tools.list_ports
+
+    width = 800
+    height = 600
+    
+    scaled_paths = scale_svg_paths(paths, min_max, WIDTH=width, HEIGHT=height)
 # Create a Tkinter window
     root = tk.Tk()
     root.title("SVG Path Display")
@@ -219,13 +229,44 @@ def display_svg_path(paths, min_max):
             return
         try:
             ser = serial.Serial(com_port, 115200, timeout=1)
+            # serial read res[ponse
+            try:
+                response = ser.readline().decode('utf-8').strip()
+                print(f"Response: {response}")
+            except Exception as e:
+                print(f"Error reading from serial: {e}")
+            try:
+                response = ser.readline().decode('utf-8').strip()
+                print(f"Response: {response}")
+            except Exception as e:
+                print(f"Error reading from serial: {e}")
+
             print(f"Opened COM port: {com_port}")
-            for path in paths:
+            scaled_paths = scale_svg_paths(paths, min_max, WIDTH=4095, HEIGHT=4095)
+            
+
+            ser.write("upload_start\n".encode('utf-8'))
+            for path in scaled_paths[:]:
+                laser_on = "FALSE"
                 for point in path:
-                    command = f"G1 X{point[0]:.2f} Y{point[1]:.2f}\n"
+                    command = f"{point[0]},{point[1]},{laser_on}\n"
+                    laser_on = "TRUE"
                     ser.write(command.encode('utf-8'))
-                    response = ser.readline().decode('utf-8').strip()
-                    print(f"Sent: {command.strip()}, Received: {response}")
+                    ser.flush()
+                    sleep(0.1)  # small delay to avoid overwhelming the serial buffer
+                    # response = ser.readline().decode('utf-8').strip()
+                    print(f"Sent: {command.strip()}")
+            ser.write("upload_end\n".encode('utf-8'))
+            
+            # print number of samples:
+            count = sum(len(p) for p in scaled_paths)
+            print(f"Total number of points sent: {count}")
+
+            # read all responses until timeout
+            while True:
+                response = ser.readline().decode('utf-8').strip()
+                print(f"Response: {response}")
+
             ser.close()
             print("Finished uploading SVG path data.")
         except Exception as e:

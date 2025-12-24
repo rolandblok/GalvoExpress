@@ -1,7 +1,17 @@
 
 
-# read SVG file and convert to SVG path data
+#create a cubocbezier, and interpolate points along the curve
+import numpy as np
+def cubic_bezier(p0, p1, p2, p3, num_points=10):
+    t = np.linspace(0, 1, num_points)
+    points = ((1 - t) ** 3)[:, None] * np.array(p0) + \
+             3 * ((1 - t) ** 2)[:, None] * t[:, None] * np.array(p1) + \
+             3 * (1 - t)[:, None] * (t ** 2)[:, None] * np.array(p2) + \
+             (t ** 3)[:, None] * np.array(p3) 
+    return points
 
+
+# read SVG file and convert to SVG path data
 def svg_to_svg_path(svg_file):
     from xml.dom import minidom
 
@@ -103,15 +113,27 @@ def svg_to_svg_path(svg_file):
                     path_data.append(current_pos)
                     i += 1
                 elif cmd == 'C': # cubic Bezier curve (not implemented)
-                    print("C command not implemented yet")
-                    current_pos = (float(commands[i + 5]), float(commands[i + 6]))
-                    update_bounds(current_pos[0], current_pos[1])
-                    i += 7  # Skip for simplicity
+                    prev = current_pos
+                    p1 = (float(commands[i + 1]), float(commands[i + 2]))
+                    p2 = (float(commands[i + 3]), float(commands[i + 4]))   
+                    p3 = (float(commands[i + 5]), float(commands[i + 6]))
+                    bezier_points = cubic_bezier(prev, p1, p2, p3, num_points=10)
+                    for bp in bezier_points[1:]:
+                        path_data.append((bp[0], bp[1]))
+                        update_bounds(bp[0], bp[1])
+                    current_pos = bezier_points[-1]
+                    i += 7  # Move to the next command
                 elif cmd == 'c': # cubic Bezier curve (not implemented)
-                    print("c command not implemented yet")
-                    current_pos = (current_pos[0] + float(commands[i + 5]), current_pos[1] + float(commands[i + 6]))
-                    update_bounds(current_pos[0], current_pos[1])
-                    i += 7  # Skip for simplicity
+                    prev = current_pos
+                    p1 = (current_pos[0] + float(commands[i + 1]), current_pos[1] + float(commands[i + 2]))
+                    p2 = (current_pos[0] + float(commands[i + 3]), current_pos[1] + float(commands[i + 4]))   
+                    p3 = (current_pos[0] + float(commands[i + 5]), current_pos[1] + float(commands[i + 6]))
+                    bezier_points = cubic_bezier(prev, p1, p2, p3, num_points=10)
+                    for bp in bezier_points[1:]:
+                        path_data.append((bp[0], bp[1]))
+                        update_bounds(bp[0], bp[1])
+                    current_pos = bezier_points[-1]
+                    i += 7  # Move to the next command
                 
                 else:
                     print(f"Unhandled command: {cmd}")

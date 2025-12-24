@@ -54,10 +54,10 @@ uint16_t sine[SINE_STEPS];
 uint32_t sine_idx = 0;
 
 // Init ESP8266 only and only Timer 1
-#define TICK_TIME_US (10)  // 10 microseconds
+#define TICK_TIME_US (250)  // microseconds
 ESP8266Timer ITimer;
-uint32_t tick_counter = 0;
-uint32_t ticks_per_step = 10;  // adjust this to change speed
+uint32_t tick_counter = 1;
+uint32_t ticks_per_step = 1;  // adjust this to change speed
 
 
 uint32 IPS_counter = 0;
@@ -73,12 +73,7 @@ void IRAM_ATTR TimerHandler() {
 
   if (tick_counter >= ticks_per_step) {  // if we reached the ticks
     TPS_counter++;
-    tick_counter = 0;  // reset the tick counter
-
-    sine_idx++;
-    if (sine_idx >= SINE_STEPS) sine_idx = 0;
-    uint32_t sine_idx_1 = sine_idx;
-    uint32_t sine_idx_2 = (sine_idx + SINE_STEPS / 4) % SINE_STEPS;
+    tick_counter = 1;  // reset the tick counter
 
     switch (waveFrom) {
       case 'p':  // patern
@@ -92,9 +87,11 @@ void IRAM_ATTR TimerHandler() {
           GPOS = (1 << PIN_LASER_ENABLE);
         else
           GPOC = (1 << PIN_LASER_ENABLE);
-
         MCP_1.setValue(x);
         MCP_2.setValue(y);
+
+
+
         break;
 
       case 'r':  // random
@@ -277,7 +274,8 @@ void loop() {
 
   static uint32_t lastTime = millis();
   if (millis() - lastTime >= 1000) {
-    int usPF = (int)(1e6 / FPS_counter);
+    // int usPF = (int)(1e6 / FPS_counter);
+    int usPF = 69;
     int usPT = (int)(1e6 / TPS_counter);
     int usPI = (int)(1e6 / IPS_counter);
     double paterns_per_second = TPS_counter / patern_get_length();

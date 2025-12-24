@@ -27,16 +27,15 @@ void patern_setup()
     patern_create_square(0,0,MAX,MAX, true);
 }
 
-void patern_add_line(int x1, int y1, int x2, int y2, bool laser_on)
+void patern_add_line(int x1, int y1, int x2, int y2, bool laser_on, float step_distance)
 {
-    #define STEP_DISTANCE 200
     int dx = x2 - x1;
     int dy = y2 - y1;
     float distance = sqrt( (dx*dx) + (dy*dy) );
     
-    int NO_STEPS = max(1, (int)ceil(distance / STEP_DISTANCE));
+    int NO_STEPS = max(1, (int)ceil(distance / step_distance));
       
-    for (int i = 0; i <= NO_STEPS; i++) {
+    for (int i = 1; i <= NO_STEPS; i++) {
         float t = (float)i / NO_STEPS;  // 0.0 to 1.0
         int x = x1 + (int)(dx * t);
         int y = y1 + (int)(dy * t);
@@ -64,9 +63,11 @@ void patern_double_square(bool one_on, bool two_on)
     patern_upload_start();
 
     patern_add_square(0, 0.75*MAX, 0, 0.75*MAX, one_on);
+    // patern_upload_step(0.25*MAX, 0.25*MAX, false);
     patern_add_line(0, 0, 0.25*MAX, 0.25*MAX, false); // laser off between squares
 
     patern_add_square(0.25*MAX, MAX, 0.25*MAX, MAX, two_on);
+    // patern_upload_step(0, 0, false);
     patern_add_line(0.25*MAX, 0.25*MAX, 0, 0, false); // laser off between squares
     
     patern_upload_stop();

@@ -1,8 +1,10 @@
-
-
 #create a cubocbezier, and interpolate points along the curve
 from asyncio import sleep
 import numpy as np
+import math
+
+from trav_sales import traveling_salesman, sort_paths_by_proximity
+
 def cubic_bezier(p0, p1, p2, p3, num_points=10):
     t = np.linspace(0, 1, num_points)
     points = ((1 - t) ** 3)[:, None] * np.array(p0) + \
@@ -36,18 +38,15 @@ def svg_to_svg_path(svg_file):
             d = element.getAttribute('d')
             d = d.replace('\n', ' ')
             d = d.replace(',', ' ')
-            print(d)
             # add whitespace around commands
             import re
             commands = d.split()
-            print(commands)
             current_pos = (0, 0)
             start_pos = (0, 0)
             cmd = ''
             path_data = []
             i = 0   
             while i < len(commands):
-                print(commands[i])
                 # if the command is a float, repeat the last command
                 if re.match(r'-?\d*\.?\d+', commands[i]):
                     if cmd == 'M':
@@ -57,7 +56,6 @@ def svg_to_svg_path(svg_file):
                     commands.insert(i, cmd)
 
                 cmd = commands[i]
-                print(f"cmd: {cmd}" )
                 if cmd == 'M':
                     x = float(commands[i + 1])
                     y = float(commands[i + 2])
@@ -192,7 +190,17 @@ def scale_svg_paths(paths_in, min_max, WIDTH=800, HEIGHT=600):
         for i in range(len(path)):
             path[i] = (path[i][0], height - path[i][1]) 
 
+    # center the paths
+    x_center_offset = (WIDTH - width) // 2
+    y_center_offset = (HEIGHT - height) // 2
+    for path in scaled_paths:
+        for i in range(len(path)):
+            path[i] = (path[i][0] + x_center_offset, path[i][1] + y_center_offset)
+
+
     return scaled_paths
+
+
 
 # function to create TK window that scales the SVG and draws the path data
 def display_svg_path(paths, min_max):
@@ -215,7 +223,15 @@ def display_svg_path(paths, min_max):
     # Draw the paths on the canvas
     for path in scaled_paths:
         for i in range(len(path) - 1):
+            # set line color to black and width to 1
             canvas.create_line(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1], fill='black', width=2)
+        # draw a red line to next path start if not last path
+        if path != scaled_paths[-1]:
+            next_path = scaled_paths[scaled_paths.index(path) + 1]
+            canvas.create_line(path[-1][0], path[-1][1], next_path[0][0], next_path[0][1], fill='red', dash=(4, 2))
+        else: #line to first path start
+            first_path = scaled_paths[0]
+            canvas.create_line(path[-1][0], path[-1][1], first_path[0][0], first_path[0][1], fill='red', dash=(4, 2))
 
     # Create a frame for controls
     control_frame = tk.Frame(root)
@@ -288,10 +304,29 @@ def display_svg_path(paths, min_max):
 
 # Example usage
 if __name__ == "__main__":
-    svg_file = '../SVG/Aircision_logo.svg'  # Replace with your SVG file path
+    svg_file = '../SVG/Aircision_logo_2.svg'  # Replace with your SVG file path
     path_data, min_max = svg_to_svg_path(svg_file)
-    print("SVG Path Data:")
-    # print the path data each element on a new line
-    for path in path_data:
-        print(path)
+    # path_data = sort_paths_by_proximity(path_data)
+    # 
+    path_data = traveling_salesman(path_data)
+
+    # calculate the total distance of the path, including lines between paths
+    total_distance = 0
+    for i in range(len(path_data)):
+        path = path_data[i]
+        # distance along the path
+        for j in range(len(path) - 1):
+            total_distance += math.sqrt((path[j][0] - path[j + 1][0]) ** 2 + (path[j][1] - path[j + 1][1]) ** 2)
+        # distance to next path start
+        if i < len(path_data) - 1:
+            next_path = path_data[i + 1]
+        else:
+            next_path = path_data[0]
+        total_distance += math.sqrt((path[-1][0] - next_path[0][0]) ** 2 + (path[-1][1] - next_path[0][1]) ** 2)
+    print(f"Total path distance: {total_distance}")
+
+    # print("SVG Path Data:")
+    # # print the path data each element on a new line
+    # for path in path_data:
+    #     print(path)
     display_svg_path(path_data, min_max)

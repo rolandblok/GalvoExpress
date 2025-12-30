@@ -124,20 +124,6 @@ void patern_upload_step(int x, int y, bool laser_on)
 }
 void patern_upload_stop()
 {
-    // log the patern to serial
-    Serial.print("# Patern uploaded, length: ");
-    Serial.println(patern_points_upload.size());
-    for (size_t i = 0; i < patern_points_upload.size(); i++)
-    {
-        Serial.print("# ");
-        Serial.print(i);
-        Serial.print(": x=");
-        Serial.print(patern_points_upload[i].x);
-        Serial.print(", y=");
-        Serial.print(patern_points_upload[i].y);
-        Serial.print(", laser_on=");
-        Serial.println(patern_points_upload[i].laser_on ? "true" : "false");
-    }
     patern_points = patern_points_upload;
     patern_index = 0;
 
@@ -146,4 +132,21 @@ void patern_upload_stop()
 int patern_get_length()
 {
     return patern_points.size();
+}
+
+void patern_serial_log_current_patern()
+{
+    Serial.print("# Current patern, length: ");
+    Serial.println(patern_points.size());
+    for (size_t i = 0; i < patern_points.size(); i++)
+    {
+        Serial.print("# ");
+        Serial.print(i);
+        Serial.print(": x=");
+        Serial.print(patern_points[i].x);
+        Serial.print(", y=");
+        Serial.print(patern_points[i].y);
+        Serial.print(", laser_on=");
+        Serial.println(patern_points[i].laser_on ? "true" : "false");
+    }
 }

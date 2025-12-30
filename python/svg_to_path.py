@@ -1,5 +1,6 @@
 #create a cubocbezier, and interpolate points along the curve
-from asyncio import sleep
+# Add this import instead
+import time
 import numpy as np
 import math
 
@@ -128,7 +129,7 @@ def svg_to_svg_path(svg_file):
                     p1 = (float(commands[i + 1]), float(commands[i + 2]))
                     p2 = (float(commands[i + 3]), float(commands[i + 4]))   
                     p3 = (float(commands[i + 5]), float(commands[i + 6]))
-                    bezier_points = cubic_bezier(prev, p1, p2, p3, num_points=10)
+                    bezier_points = cubic_bezier(prev, p1, p2, p3, num_points=4)
                     for bp in bezier_points[1:]:
                         path_data.append((bp[0], bp[1]))
                         update_bounds(bp[0], bp[1])
@@ -139,7 +140,7 @@ def svg_to_svg_path(svg_file):
                     p1 = (current_pos[0] + float(commands[i + 1]), current_pos[1] + float(commands[i + 2]))
                     p2 = (current_pos[0] + float(commands[i + 3]), current_pos[1] + float(commands[i + 4]))   
                     p3 = (current_pos[0] + float(commands[i + 5]), current_pos[1] + float(commands[i + 6]))
-                    bezier_points = cubic_bezier(prev, p1, p2, p3, num_points=10)
+                    bezier_points = cubic_bezier(prev, p1, p2, p3, num_points=4)
                     for bp in bezier_points[1:]:
                         path_data.append((bp[0], bp[1]))
                         update_bounds(bp[0], bp[1])
@@ -161,7 +162,7 @@ def svg_to_svg_path(svg_file):
     doc.unlink()
     return paths, (bounds_min, bounds_max)
 
-def scale_svg_paths(paths_in, min_max, WIDTH=800, HEIGHT=600):
+def scale_svg_paths(paths_in, min_max, WIDTH=800, HEIGHT=600, invert_x=False, invert_y=True):
 
     # create a scaling factor to fit the SVG into the window
 # create a scaling factor to fit the SVG into the window
@@ -186,9 +187,16 @@ def scale_svg_paths(paths_in, min_max, WIDTH=800, HEIGHT=600):
         scaled_paths.append(scaled_path)
 
     # revert y axis
-    for path in scaled_paths:
-        for i in range(len(path)):
-            path[i] = (path[i][0], height - path[i][1]) 
+    if invert_y:
+        for path in scaled_paths:
+            for i in range(len(path)):
+                path[i] = (path[i][0], height - path[i][1]) 
+
+    # revert x axis
+    if invert_x:
+        for path in scaled_paths:
+            for i in range(len(path)):
+                path[i] = (width - path[i][0], path[i][1])
 
     # center the paths
     x_center_offset = (WIDTH - width) // 2
@@ -225,6 +233,8 @@ def display_svg_path(paths, min_max):
         for i in range(len(path) - 1):
             # set line color to black and width to 1
             canvas.create_line(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1], fill='black', width=2)
+            # draw a circle at each point
+            canvas.create_oval(path[i][0]-3, path[i][1]-3, path[i][0]+3, path[i][1]+3, fill='red')
         # draw a red line to next path start if not last path
         if path != scaled_paths[-1]:
             next_path = scaled_paths[scaled_paths.index(path) + 1]
@@ -245,23 +255,33 @@ def display_svg_path(paths, min_max):
             return
         try:
             ser = serial.Serial(com_port, 115200, timeout=1)
+            time.sleep(0.1)
+
+            # Clear any existing data in buffers
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+
             # serial read res[ponse
             try:
-                response = ser.readline().decode('utf-8').strip()
-                print(f"Response: {response}")
+                response = ser.readline().decode('utf-8')
+                print(f"Initial Response: {response}")
             except Exception as e:
-                print(f"Error reading from serial: {e}")
-            try:
-                response = ser.readline().decode('utf-8').strip()
-                print(f"Response: {response}")
-            except Exception as e:
-                print(f"Error reading from serial: {e}")
+                print(f"Initial Response: Error reading from serial: {e}")
+            except UnicodeDecodeError:
+                print("Initial Response: Received undecodable data")   
 
             print(f"Opened COM port: {com_port}")
-            scaled_paths = scale_svg_paths(paths, min_max, WIDTH=4095, HEIGHT=4095)
+            scaled_paths = scale_svg_paths(paths, min_max, WIDTH=4095, HEIGHT=4095, invert_x= True, invert_y=False)
             
-
             ser.write("upload_start\n".encode('utf-8'))
+            time.sleep(0.01)
+            # Wait for upload_start confirmation
+            response = ser.readline().decode('utf-8').strip()
+            print(f"Upload start response: {response}")
+            if response != "# upload_start":
+                ser.close()
+                exit()
+
             for path in scaled_paths[:]:
                 laser_on = "FALSE"
                 for point in path:
@@ -269,19 +289,26 @@ def display_svg_path(paths, min_max):
                     laser_on = "TRUE"
                     ser.write(command.encode('utf-8'))
                     ser.flush()
-                    sleep(0.1)  # small delay to avoid overwhelming the serial buffer
+                    time.sleep(0.01)  # small delay to avoid overwhelming the serial buffer
                     # response = ser.readline().decode('utf-8').strip()
                     print(f"Sent: {command.strip()}")
+            
             ser.write("upload_end\n".encode('utf-8'))
+            # Wait for upload_end confirmation
+            response = ser.readline().decode('utf-8').strip()
+            print(f"Upload end response: {response}")
+            if response != "# upload_end":
+                ser.close()
+                exit()
             
             # print number of samples:
             count = sum(len(p) for p in scaled_paths)
             print(f"Total number of points sent: {count}")
 
             # read all responses until timeout
-            while True:
-                response = ser.readline().decode('utf-8').strip()
-                print(f"Response: {response}")
+            # while True:
+            #     response = ser.readline().decode('utf-8').strip()
+            #     print(f"Response: {response}")
 
             ser.close()
             print("Finished uploading SVG path data.")
@@ -304,7 +331,7 @@ def display_svg_path(paths, min_max):
 
 # Example usage
 if __name__ == "__main__":
-    svg_file = '../SVG/Aircision_logo_2.svg'  # Replace with your SVG file path
+    svg_file = '../SVG/Aircision_logo.svg'  # Replace with your SVG file path
     path_data, min_max = svg_to_svg_path(svg_file)
     # path_data = sort_paths_by_proximity(path_data)
     # 

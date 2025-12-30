@@ -12,6 +12,27 @@
 //  Laser galvo Instructabel
 // https://www.instructables.com/DIY-STEPDIR-LASER-GALVO-CONTROLLER/
 
+// MCP4922 DAC library
+// https://ww1.microchip.com/downloads/en/DeviceDoc/22250A.pdf
+// https://www.best-microcontroller-projects.com/mcp4922.html
+//     VoutA VRefA Vss VREFB VOUTB  SHDNn  LDACn
+//   ----------------------------------------
+//  |   14   13   12   11    10      9    8  |
+//  >    MCP4922                             |
+//  |    1    2    3    4     5      6    7  |
+//   ----------------------------------------
+//       Vdd  NC  CSn  SCK  SDI     NC   NC
+
+// WEMOS D1 mini pinout
+//  3V3 = VDD (1)
+//  G   = VSS (12) 
+//  MISO = D6 = GPIO12 = SDI = SDO NOT NEEDED, CANNOT READ FROM MCP4725
+//  MOSI = D7 = GPIO13 = SDO = SDI (5)
+//  SCK  = D5 = GPIO14 = SCK (4)
+//  CS   = D8 = GPIO15 = CSn (3) AND LDACn (8) tied together
+//  VCC  = SHDNn
+
+#include <SPI.h>
 
 // The software was made for Wemos D1 mini, but could easily be adapted for any u-controller
 // Import required libraries
@@ -30,31 +51,18 @@
 
 #include "patern.hpp"
 
-//  q = square       z = zero
-//  s = sinus/circle m = mid
-//  w = sawtooth     h = high
-//  t = stair
-//  r = random
-char waveFrom = 'p';
 
 void (*resetFunc)(void) = 0;
 
-#define PIN_LASER_ENABLE D3
+const int PIN_LASER_ENABLE = D3; // GPIO0
+const int PIN_CS = D8;  // GPIO15
 
-MCP4725 MCP_1(0x60);
-MCP4725 MCP_2(0x61);
-uint16_t count;
 uint32_t lastTime = 0;
 #define MCP_MAX_BITS 4095
 
 
-//  LOOKUP TABLE SINE
-#define SINE_STEPS 144
-uint16_t sine[SINE_STEPS];
-uint32_t sine_idx = 0;
-
 // Init ESP8266 only and only Timer 1
-#define TICK_TIME_US (250)  // microseconds
+#define TICK_TIME_US (30)  // microseconds
 ESP8266Timer ITimer;
 uint32_t tick_counter = 1;
 uint32_t ticks_per_step = 1;  // adjust this to change speed
@@ -62,10 +70,30 @@ uint32_t ticks_per_step = 1;  // adjust this to change speed
 
 uint32 IPS_counter = 0;
 uint32 TPS_counter = 0;
-uint32 FPS_counter = 0;
+uint32 LPS_counter = 1;
 
 
-int sqr_counter = 0;
+void writeDAC(uint16_t valueA, uint16_t valueB) {
+  valueA &= 0x0FFF;  // Ensure 12-bit values
+  valueB &= 0x0FFF;
+
+  // MCP4922 command format: [A/B][BUF][GA][SHDN][D11:D0]
+  uint16_t cmdA = 0x3000 | valueA;  // 0011 xxxx xxxx xxxx
+  uint16_t cmdB = 0xB000 | valueB;  // 1011 xxxx xxxx xxxx
+    
+  // Fast GPIO operations instead of digitalWrite
+  GPOC = (1 << 15);  // PIN_CS LOW (GPIO15)
+
+  SPI.transfer16(cmdB);
+    GPOS = (1 << 15);  // PIN_CS HIGH (GPIO15)
+      GPOC = (1 << 15);  // PIN_CS LOW (GPIO15)
+  SPI.transfer16(cmdA);
+  
+  GPOS = (1 << 15);  // PIN_CS HIGH (GPIO15)
+}
+
+
+volatile bool update_dac = false;
 void IRAM_ATTR TimerHandler() {
 
   IPS_counter++;
@@ -75,95 +103,40 @@ void IRAM_ATTR TimerHandler() {
     TPS_counter++;
     tick_counter = 1;  // reset the tick counter
 
-    switch (waveFrom) {
-      case 'p':  // patern
-        int x, y;
-        bool laser_on;
-        patern_get_next_step(x, y, laser_on);
-
-        // digitalWrite(PIN_LASER_ENABLE, laser_on ? HIGH : LOW);
-        // fast switch laser on/off
-        if (laser_on)
-          GPOS = (1 << PIN_LASER_ENABLE);
-        else
-          GPOC = (1 << PIN_LASER_ENABLE);
-        MCP_1.setValue(x);
-        MCP_2.setValue(y);
+    update_dac = true;  // set flag to update DAC in main loop
 
 
-
-        break;
-
-      case 'r':  // random
-        MCP_1.setValue(random(MCP_MAX_BITS + 1));
-        MCP_2.setValue(random(MCP_MAX_BITS + 1));
-        break;
-    }
   }
 }
 
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial)
-    ;
+  // while (!Serial)
+  //   ;
 
+  // Serial.print("MCP4725_wave_generator - ");
+  Serial.println(__FILE__);
+  Serial.println("MCP4922 driven galvo driver - setup started...\n");
+
+  // setup paterns
   patern_setup();
 
+  // Laser Enable pin
   pinMode(PIN_LASER_ENABLE, OUTPUT);
   digitalWrite(PIN_LASER_ENABLE, HIGH);  // Enable laser driver (active HIGH)
 
+  // SPI setup
+  pinMode(PIN_CS, OUTPUT);
+  digitalWrite(PIN_CS, HIGH);  // CSn inactive
+  SPI.begin();
+  SPI.setFrequency(15000000);
+  SPI.setDataMode(SPI_MODE0);
+  SPI.setBitOrder(MSBFIRST);
+
+  // Disable WiFi to save power
   WiFi.mode(WIFI_OFF);
   WiFi.forceSleepBegin();
-
-  Serial.print("MCP4725_wave_generator - ");
-  Serial.println(__FILE__);
-  Serial.print("MCP4725_VERSION: ");
-  Serial.println(MCP4725_VERSION);
-  Serial.println();
-
-  Wire.begin();
-  //  Wire.setClock(3400000);
-
-  //  fill table
-  for (int i = 0; i < SINE_STEPS; i++) {
-    sine[i] = MCP_MAX_BITS / 2 + round((MCP_MAX_BITS / 2) * sin((2 * PI * i) / SINE_STEPS));
-  }
-
-  //  init MCP4725
-  MCP_1.begin();
-  MCP_2.begin();
-  Wire.setClock(400000);
-
-  //  scan I2C bus for devices
-  byte error, address;
-  int nDevices = 0;
-  for (address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-
-    if (error == 0) {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.print(address, HEX);
-      Serial.println(" !");
-
-      nDevices++;
-    } else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.println(address, HEX);
-    }
-  }
-
-  MCP_1.setValue(0);
-  if (!MCP_1.isConnected()) {
-    Serial.println(" 4725 not connected!");
-  }
-  MCP_2.setValue(0);
-  if (!MCP_2.isConnected()) {
-    Serial.println("MCP_2 4725 not connected!");
-  }
 
   // interval (in hz)
   if (ITimer.attachInterruptInterval(TICK_TIME_US, TimerHandler)) {
@@ -172,23 +145,14 @@ void setup() {
     Serial.println("# interrupt timer start failed");
   }
 
-  // // --- Configure Hardware Timer1 ---
-  // // timer1 is 1-shot or repeating depending on the call
-  // // TIM_DIV16 → 5 MHz timer → 0.2 µs ticks
-  // timer1_attachInterrupt(TimerHandler);
-  // timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
-  // timer1_write(TICK_TIME_US);   // <-- shortest stable interval
-
+  // create default patern
   patern_create_circle();
-  waveFrom = 'p';
 
-
-  Serial.println("# MCP_1 and MCP_2  connected");
+  Serial.println("# Setup done.");
 }
 
 
 void loop() {
-  FPS_counter++;
   static bool uploading = false;
   static bool uploading_first_line = true;
   static int  uploading_previous_x = 0;
@@ -201,7 +165,7 @@ void loop() {
     if (uploading) {
       if (input.equals("upload_end")) {
         uploading = false;
-        Serial.println("# Uploading paterns mode deactivated.");
+        Serial.println("# upload_end");
         // add line back to first point
         patern_add_line(uploading_previous_x, uploading_previous_y, uploading_first_x, uploading_first_y, uploading_first_laser_on);
         // Serial.println("# Closing line to first point: " + String(uploading_first_x) + "," + String(uploading_first_y) + "," + String(uploading_first_laser_on));
@@ -239,56 +203,50 @@ void loop() {
     
     // no upload in progress, checking commands
     }  else if (input.equals("upload_start")) {
-        Serial.println("# Uploading paterns mode activated. Send number of points:");
+        Serial.println("# upload_start");
         uploading = true;
         patern_upload_start();
         uploading_first_line = true;
 
+    } else if (input.equals("log")) {
+        patern_serial_log_current_patern();
+        
+
     } else if (input.equals("+")){
         ticks_per_step++;
         Serial.println("# ticks_per_step increased by 1");
-        Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
+        Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
    } else if (input.equals("-")){ 
         ticks_per_step--;
         Serial.println("# ticks_per_step decreased by 1");
-        Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
+        Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
    } else if (input.equals("*")){
         ticks_per_step *= 10;
         Serial.println("# ticks_per_step multiplied by 10");
-        Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
+        Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
    } else if (input.equals("/")){ 
         ticks_per_step /= 10;
         Serial.println("# ticks_per_step divided by 10");
-        Serial.println("# " + String(ticks_per_step) + " ticks_per_step, wave: " + String((char)waveFrom));
+        Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
    } else if (input.equals("s")) {
         patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
         Serial.println("# Square patern created");
-        waveFrom = 'p';
     } else if (input.equals("c")) {
         patern_create_circle();
         Serial.println("# Circle patern created");
-        waveFrom = 'p';
     } else if (input.equals("q")) {
         patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
         Serial.println("# Square patern created");
-        waveFrom = 'p';
-    } else if (input.equals("r")) {
-        waveFrom = 'r';
-        Serial.println("# Random wave selected");
     } else if (input.equals("z")) {  //zero
-        patern_create_point(0, 0, false);
-        waveFrom = 'c';
+        patern_create_point(1, 1, false);
     } else if (input.equals("m")) {  // mid
         patern_create_point(MCP_MAX_BITS / 2, MCP_MAX_BITS / 2, false);
-        waveFrom = 'c';
     } else if (input.equals("h")) {  // highest point
         patern_create_point(MCP_MAX_BITS, MCP_MAX_BITS, false);
-        waveFrom = 'c';
     } else if (input.equals("x")) {
         patern_double_square(true, true);
         Serial.println("# Double square patern created (one on, two off)");
-        waveFrom = 'p';
-    }else if (input.equals("REBOOT")) {
+    } else if (input.equals("REBOOT")) {
         Serial.println("# REBOOT");
         Serial.end();  //clears the serial monitor  if used
         resetFunc();
@@ -298,23 +256,45 @@ void loop() {
     }
   }
 
+  // Update DAC if flag is set by timer interrupt
+  if (update_dac) {
+    update_dac = false;  // reset flag
+
+    int next_x = 0;
+    int next_y = 0;
+    bool next_laser_on = false;
+    patern_get_next_step(next_x, next_y, next_laser_on);
+
+    // send to DAC
+    writeDAC(next_x, next_y);
+
+    // fast switch laser on/off
+    if (next_laser_on)
+      GPOS = (1 << PIN_LASER_ENABLE);
+    else
+      GPOC = (1 << PIN_LASER_ENABLE);
+  }
+
   static uint32_t lastTime = millis();
-  if (millis() - lastTime >= 1000) {
-    // int usPF = (int)(1e6 / FPS_counter);
-    int usPF = 69;
+  if (!uploading && (millis() - lastTime >= 1000)) {
+    // LPS> 000
+    int usPL = (int)(1e6 / LPS_counter);
     int usPT = (int)(1e6 / TPS_counter);
     int usPI = (int)(1e6 / IPS_counter);
     double paterns_per_second = TPS_counter / patern_get_length();
 
     lastTime = millis();
-    Serial.print("# usPF: " + String(usPF) + ", ");
+    Serial.print("# usPL: " + String(usPL) + ", ");
     Serial.print(" usPT: " + String(usPT) + ", ");
     Serial.print(" usPI: " + String(usPI) + ", ");
     Serial.print(" ticks_per_step: " + String(ticks_per_step) + ",");
     Serial.print(" paterns_per_second: " + String(paterns_per_second, 2) + "\n");
     TPS_counter = 0;
     IPS_counter = 0;
-    FPS_counter = 0;
+    LPS_counter = 1;
+
+  } else {
+    LPS_counter++;
   }
 }
 

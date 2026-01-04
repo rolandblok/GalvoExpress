@@ -2,6 +2,7 @@
 
 
 #include "patern.hpp"
+#include "mytypes.hpp"
 #include <math.h>
 #include <vector>
 #include <Arduino.h>
@@ -10,12 +11,6 @@
 using namespace std;
 
 #define MAX 4095
-
-struct patern_point {
-    int x;
-    int y;
-    bool laser_on;
-} ;
 
 int patern_index = 0;
 vector<patern_point> patern_points;

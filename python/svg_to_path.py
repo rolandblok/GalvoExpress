@@ -351,6 +351,9 @@ if __name__ == "__main__":
             next_path = path_data[0]
         total_distance += math.sqrt((path[-1][0] - next_path[0][0]) ** 2 + (path[-1][1] - next_path[0][1]) ** 2)
     print(f"Total path distance: {total_distance}")
+    # no of lines:
+    total_lines = sum(len(path) - 1 for path in path_data) + len(path_data)  # including lines between paths
+    print(f"Total number of lines (including between paths): {total_lines}")
 
     # print("SVG Path Data:")
     # # print the path data each element on a new line

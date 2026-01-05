@@ -115,7 +115,6 @@ void setup() {
   // while (!Serial)
   //   ;
 
-  // Serial.print("MCP4725_wave_generator - ");
   Serial.println(__FILE__);
   Serial.println("MCP4922 driven galvo driver - setup started...\n");
 
@@ -155,10 +154,10 @@ void setup() {
 void loop() {
   static bool uploading = false;
   static bool uploading_first_line = true;
-  static int  uploading_previous_x = 0;
-  static int  uploading_previous_y = 0;
-  static int  uploading_first_x = 0;
-  static int  uploading_first_y = 0;
+  static int  uploading_previous_x = 0; // to store previous point during upload
+  static int  uploading_previous_y = 0; // to store previous point during upload
+  static int  uploading_first_x = 0;    // to store first point during upload
+  static int  uploading_first_y = 0;    // to store first point during upload
   static bool uploading_first_laser_on = false;
   if (Serial.available()) {
     String input = Serial.readStringUntil('\n');
@@ -181,8 +180,6 @@ void loop() {
           bool laser_on = (laserOnStr.equalsIgnoreCase("TRUE"));
 
           if (uploading_first_line) {
-            uploading_previous_x = x;
-            uploading_previous_y = y;
             uploading_first_x = x;
             uploading_first_y = y;
             uploading_first_laser_on = laser_on;
@@ -191,12 +188,12 @@ void loop() {
           } else {
             // add line from previous point to current point
             patern_add_line(uploading_previous_x, uploading_previous_y, x, y, laser_on);
-            uploading_previous_x = x;
-            uploading_previous_y = y;
             // Serial.println("# Point uploaded.: " + String(x) + "," + String(y) + "," + String(laser_on));
           }
+          uploading_previous_x = x;
+          uploading_previous_y = y;
+
         } else {
-          
           Serial.println("# Invalid upload format. Use: x,y,laser_on, not: " + input);   
         }
       }
@@ -210,7 +207,6 @@ void loop() {
 
     } else if (input.equals("log")) {
         patern_serial_log_current_patern();
-        
 
     } else if (input.equals("+")){
         ticks_per_step++;
@@ -228,6 +224,7 @@ void loop() {
         ticks_per_step /= 10;
         Serial.println("# ticks_per_step divided by 10");
         Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
+
    } else if (input.equals("s")) {
         patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
         Serial.println("# Square patern created");
@@ -246,6 +243,7 @@ void loop() {
     } else if (input.equals("x")) {
         patern_double_square(true, true);
         Serial.println("# Double square patern created (one on, two off)");
+        
     } else if (input.equals("REBOOT")) {
         Serial.println("# REBOOT");
         Serial.end();  //clears the serial monitor  if used

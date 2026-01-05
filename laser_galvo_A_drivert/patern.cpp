@@ -3,6 +3,7 @@
 
 #include "patern.hpp"
 #include "mytypes.hpp"
+#include "mystore.hpp"
 #include <math.h>
 #include <vector>
 #include <Arduino.h>
@@ -19,7 +20,11 @@ vector<patern_point> patern_points;
 
 void patern_setup()
 {
-    patern_create_square(0,0,MAX,MAX, true);
+    if (!load_pattern(patern_points)) {
+        // If loading fails, create a default pattern
+        patern_create_circle();
+    }
+    Serial.println("# Loaded pattern, length: " + String(patern_points.size()));
 }
 
 void patern_add_line(int x1, int y1, int x2, int y2, bool laser_on, float step_distance)
@@ -121,6 +126,8 @@ void patern_upload_stop()
 {
     patern_points = patern_points_upload;
     patern_index = 0;
+
+    save_pattern(patern_points);
 
 }
 

@@ -44,7 +44,6 @@
 #error "This ain't a ESP8266 or ESP32, !"
 #endif
 
-#include "MCP4725.h"
 #include "Wire.h"
 
 #include <ESP8266TimerInterrupt.h>
@@ -57,20 +56,21 @@ void (*resetFunc)(void) = 0;
 const int PIN_LASER_ENABLE = D3; // GPIO0
 const int PIN_CS = D8;  // GPIO15
 
-uint32_t lastTime = 0;
 #define MCP_MAX_BITS 4095
 
 
 // Init ESP8266 only and only Timer 1
-#define TICK_TIME_US (30)  // microseconds
+#define INTERRUPT_TIME_US (10)  // microseconds
 ESP8266Timer ITimer;
-uint32_t tick_counter = 1;
-uint32_t ticks_per_step = 1;  // adjust this to change speed
 
+uint32_t ticks_per_step = 3;  // adjust this to change speed
 
-uint32 IPS_counter = 0;
-uint32 TPS_counter = 0;
-uint32 LPS_counter = 1;
+const int INTERRUPT_LASER_DELAY = 1; // in ticks. may never be higher than ticks_per_step
+const int INTERRUPT_DAC_DELAY = 0;   // in ticks, may never be higher than ticks_per_step
+
+volatile uint32_t IPS_counter = 0;
+volatile uint32_t TPS_counter = 0;
+volatile uint32_t LPS_counter = 1;
 
 
 void writeDAC(uint16_t valueA, uint16_t valueB) {
@@ -92,20 +92,52 @@ void writeDAC(uint16_t valueA, uint16_t valueB) {
   GPOS = (1 << 15);  // PIN_CS HIGH (GPIO15)
 }
 
+void writeLaser(bool laser_on) {
+    // fast switch laser on/off
+    if (laser_on)
+      GPOS = (1 << PIN_LASER_ENABLE);
+    else
+      GPOC = (1 << PIN_LASER_ENABLE);
+}
 
-volatile bool update_dac = false;
+volatile bool dac_update = false;
+volatile int next_x = 0;
+volatile int next_y = 0;
+volatile bool laser_update = false;
+volatile bool next_laser_on = false;
 void IRAM_ATTR TimerHandler() {
+  static int update_dac_countdown = -1;
+  static int update_laser_countdown = -1;
+  static uint32_t tick_counter   = 0;
 
   IPS_counter++;
-  tick_counter++;  // increment the tick counter
+  tick_counter++;  // This was missing - tick counter never incremented!
 
-  if (tick_counter >= ticks_per_step) {  // if we reached the ticks
-    TPS_counter++;
-    tick_counter = 1;  // reset the tick counter
+  if (tick_counter >= ticks_per_step) {  
+    tick_counter = 0;  // reset the tick counter
+    int x, y;
+    bool laser_on;
+    patern_get_next_step(x, y, laser_on);
+    next_x = x;
+    next_y = y;
+    next_laser_on = laser_on;
+    update_dac_countdown = INTERRUPT_DAC_DELAY;
+    update_laser_countdown = INTERRUPT_LASER_DELAY;
+    TPS_counter++;  // Moved here - only count when step is taken
+  }
+  
+  if (update_dac_countdown == 0) {
+    dac_update = true;
+    update_dac_countdown = -1;  // Mark as completed
+  } else if (update_dac_countdown > 0) {
+    update_dac_countdown--;
+  }
 
-    update_dac = true;  // set flag to update DAC in main loop
-
-
+  if (update_laser_countdown == 0) {
+    update_laser_countdown = -1;  // Mark as completed
+    laser_update = true;
+  } else if (update_laser_countdown > 0) {
+    update_laser_countdown--;
   }
 }
 
@@ -138,7 +170,7 @@ void setup() {
   WiFi.forceSleepBegin();
 
   // interval (in hz)
-  if (ITimer.attachInterruptInterval(TICK_TIME_US, TimerHandler)) {
+  if (ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler)) {
     Serial.println("# interrupt timer started");
   } else {
     Serial.println("# interrupt timer start failed");
@@ -254,24 +286,16 @@ void loop() {
     }
   }
 
-  // Update DAC if flag is set by timer interrupt
-  if (update_dac) {
-    update_dac = false;  // reset flag
-
-    int next_x = 0;
-    int next_y = 0;
-    bool next_laser_on = false;
-    patern_get_next_step(next_x, next_y, next_laser_on);
-
-    // send to DAC
+  if (dac_update) {
     writeDAC(next_x, next_y);
-
-    // fast switch laser on/off
-    if (next_laser_on)
-      GPOS = (1 << PIN_LASER_ENABLE);
-    else
-      GPOC = (1 << PIN_LASER_ENABLE);
+    dac_update = false;
   }
+
+  if (laser_update) {
+    writeLaser(next_laser_on);
+    laser_update = false;
+  }
+
 
   static uint32_t lastTime = millis();
   if (!uploading && (millis() - lastTime >= 1000)) {

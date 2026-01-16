@@ -5,25 +5,24 @@
 
 const String STORAGE_PATH = "/pattern.txt";
 
-bool save_pattern(String name, const vector<patern_point>& data) {
+bool save_pattern(const vector<patern_point>& data) {
     // Implementation to save data to storage
     File file = LittleFS.open(STORAGE_PATH, "w");
     if (!file) {
         Serial.println("# Failed to open file for writing");
         return false;
     }
-    file.println(name);  // write name
     // write number of points
     file.println(String(data.size()));
     for (const auto& point : data) {
         file.printf("%d,%d,%d\n", point.x, point.y, point.laser_on ? 1 : 0);
     }
     file.close();
-    Serial.println("# Pattern saved: " + name);
+    Serial.println("# Pattern saved");
     return true;
 }
 
-bool load_pattern(String & name, vector<patern_point>& data) {
+bool load_pattern(vector<patern_point>& data) {
     // Implementation to load data from storage
     if (!LittleFS.exists(STORAGE_PATH)) {
         Serial.println("# Storage file does not exist");
@@ -35,8 +34,6 @@ bool load_pattern(String & name, vector<patern_point>& data) {
         return false;
     }
 
-    // read the name
-    name = file.readStringUntil('\n');
     data.clear();
     int line_count = file.readStringUntil('\n').toInt();
     String line;
@@ -56,9 +53,19 @@ bool load_pattern(String & name, vector<patern_point>& data) {
 
     file.close();
     if (lines_read != line_count) {
-        Serial.println("# Pattern not found: " + name);
+        Serial.println("# Pattern not found");
         return false;
     }
-    Serial.println("Pattern loaded: " + name);
+    Serial.println("Pattern loaded");
     return true;
+}
+
+void delete_pattern() {
+    // Implementation to delete pattern from storage
+    if (LittleFS.exists(STORAGE_PATH)) {
+        LittleFS.remove(STORAGE_PATH);
+        Serial.println("# Pattern deleted");
+    } else {
+        Serial.println("# No pattern to delete");
+    }
 }

@@ -254,9 +254,14 @@ def display_svg_path(paths, min_max):
             print("No COM port selected.")
             return
         try:
-            ser = serial.Serial(com_port, 115200, timeout=1)
-            time.sleep(0.1)
-
+            # Prevent Arduino reset on connection
+            ser = serial.Serial(com_port, 115200, timeout=1, 
+                            dsrdtr=False, rtscts=False)
+            ser.dtr = False
+            ser.rts = False
+                
+            time.sleep(2)  # Longer delay for Arduino to stabilize
+        
             # Clear any existing data in buffers
             ser.reset_input_buffer()
             ser.reset_output_buffer()
@@ -276,12 +281,18 @@ def display_svg_path(paths, min_max):
             ser.write("upload_start\n".encode('utf-8'))
             time.sleep(0.01)
             # Wait for upload_start confirmation
-            response = ser.readline().decode('utf-8').strip()
-            print(f"Upload start response: {response}")
+            response = ""
+            for attempt in range(5):
+                response = ser.readline().decode('utf-8').strip()
+                print(f"Upload start response (attempt {attempt + 1}): {response}")
+        
+                if response == "# upload_start":
+                    break
             if response != "# upload_start":
                 ser.close()
                 exit()
-
+            
+            countert = 0
             for path in scaled_paths[:]:
                 laser_on = "FALSE"
                 for point in path:
@@ -292,6 +303,10 @@ def display_svg_path(paths, min_max):
                     time.sleep(0.01)  # small delay to avoid overwhelming the serial buffer
                     # response = ser.readline().decode('utf-8').strip()
                     print(f"Sent: {command.strip()}")
+                    
+                countert += 1
+                if countert == 14:
+                    break
             
             ser.write("upload_end\n".encode('utf-8'))
             # Wait for upload_end confirmation
@@ -300,7 +315,11 @@ def display_svg_path(paths, min_max):
             if response != "# upload_end":
                 ser.close()
                 exit()
-            
+            for attempt in range(10):
+                response = ser.readline().decode('utf-8').strip()
+                print(f"{response}")
+        
+
             # print number of samples:
             count = sum(len(p) for p in scaled_paths)
             print(f"Total number of points sent: {count}")

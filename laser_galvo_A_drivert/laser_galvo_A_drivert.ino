@@ -48,6 +48,7 @@
 
 #include <ESP8266TimerInterrupt.h>
 
+#include "mystore.hpp"
 #include "patern.hpp"
 
 
@@ -151,7 +152,10 @@ void setup() {
   Serial.println("MCP4922 driven galvo driver - setup started...\n");
 
   // setup paterns
+  mystore_init();
   patern_setup();
+
+  // delay(1000);
 
   // Laser Enable pin
   pinMode(PIN_LASER_ENABLE, OUTPUT);
@@ -176,9 +180,6 @@ void setup() {
     Serial.println("# interrupt timer start failed");
   }
 
-  // create default patern
-  patern_create_circle();
-
   Serial.println("# Setup done.");
 }
 
@@ -200,7 +201,12 @@ void loop() {
         // add line back to first point
         patern_add_line(uploading_previous_x, uploading_previous_y, uploading_first_x, uploading_first_y, uploading_first_laser_on);
         // Serial.println("# Closing line to first point: " + String(uploading_first_x) + "," + String(uploading_first_y) + "," + String(uploading_first_laser_on));
+        ITimer.detachInterrupt();
+
         patern_upload_stop();
+
+        ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
+        Serial.println("# Upload complete, pattern length: " + String(patern_get_length()));
       } else {
         // format "x,y,laser_on", example: "2048,1024,TRUE"
         int commaIndex = input.indexOf(',');
@@ -258,22 +264,43 @@ void loop() {
         Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
 
    } else if (input.equals("s")) {
+        ITimer.detachInterrupt();
         patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
+        ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
         Serial.println("# Square patern created");
+
     } else if (input.equals("c")) {
+        ITimer.detachInterrupt();
         patern_create_circle();
+        ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
         Serial.println("# Circle patern created");
+
     } else if (input.equals("q")) {
+        ITimer.detachInterrupt();
         patern_create_square(0, MCP_MAX_BITS, 0, MCP_MAX_BITS);
+        ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
         Serial.println("# Square patern created");
+        
     } else if (input.equals("z")) {  //zero
+        ITimer.detachInterrupt();
         patern_create_point(1, 1, false);
+        ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
+
     } else if (input.equals("m")) {  // mid
+        ITimer.detachInterrupt();
         patern_create_point(MCP_MAX_BITS / 2, MCP_MAX_BITS / 2, false);
+        ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
+
     } else if (input.equals("h")) {  // highest point
+        ITimer.detachInterrupt();
         patern_create_point(MCP_MAX_BITS, MCP_MAX_BITS, false);
+        ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
+
     } else if (input.equals("x")) {
+        ITimer.detachInterrupt();
         patern_double_square(true, true);
+        ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
+
         Serial.println("# Double square patern created (one on, two off)");
         
     } else if (input.equals("REBOOT")) {
@@ -298,7 +325,7 @@ void loop() {
 
 
   static uint32_t lastTime = millis();
-  if (!uploading && (millis() - lastTime >= 1000)) {
+  if (millis() - lastTime >= 1000) {
     // LPS> 000
     int usPL = (int)(1e6 / LPS_counter);
     int usPT = (int)(1e6 / TPS_counter);
@@ -306,11 +333,13 @@ void loop() {
     double paterns_per_second = TPS_counter / patern_get_length();
 
     lastTime = millis();
-    Serial.print("# usPL: " + String(usPL) + ", ");
-    Serial.print(" usPT: " + String(usPT) + ", ");
-    Serial.print(" usPI: " + String(usPI) + ", ");
-    Serial.print(" ticks_per_step: " + String(ticks_per_step) + ",");
-    Serial.print(" paterns_per_second: " + String(paterns_per_second, 2) + "\n");
+    if (!uploading) {
+      Serial.print("# usPL: " + String(usPL) + ", ");
+      Serial.print(" usPT: " + String(usPT) + ", ");
+      Serial.print(" usPI: " + String(usPI) + ", ");
+      Serial.print(" ticks_per_step: " + String(ticks_per_step) + ",");
+      Serial.print(" paterns_per_second: " + String(paterns_per_second, 2) + "\n");
+    }
     TPS_counter = 0;
     IPS_counter = 0;
     LPS_counter = 1;

@@ -16,11 +16,9 @@ using namespace std;
 int patern_index = 0;
 vector<patern_point> patern_points;
 
-
-
 void patern_setup()
 {
-    if (!load_pattern(patern_points)) {
+    if (!mystore_load_pattern(patern_points)) {
         // If loading fails, create a default pattern
         patern_create_circle();
     }
@@ -93,8 +91,16 @@ void patern_create_point(int x, int y, bool laser_on)
     patern_upload_stop();
 }
 
+volatile bool patern_saving = false;
 void patern_get_next_step(int & x, int & y, bool &laser_on)
 {
+    if (patern_saving) {
+        x = 0;
+        y = 0;
+        laser_on = true;
+        return ;
+    }
+
     if (patern_points.size() == 0)
     {
         x = 0;
@@ -124,11 +130,17 @@ void patern_upload_step(int x, int y, bool laser_on)
 }
 void patern_upload_stop()
 {
+    Serial.println("# Uploading patern stop, total points: " + String(patern_points_upload.size()));
+    patern_saving = true;
+    delay(100);
+
     patern_points = patern_points_upload;
     patern_index = 0;
 
-    save_pattern(patern_points);
+    mystore_save_pattern(patern_points);
 
+    delay(100);
+    patern_saving = false;
 }
 
 int patern_get_length()

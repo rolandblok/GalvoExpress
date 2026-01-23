@@ -2,4 +2,4 @@ svg/*
 *.pyc
 *.zip
 __pycache__/
-fp-info-cache
+fp-info-cache/

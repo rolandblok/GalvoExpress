@@ -13,7 +13,7 @@ uint32_t pack_point(int x, int y, bool laser_on) {
     return packed;
 }
 
-void unpack_point(uint32_t packed, int& x, int& y, bool& laser_on) {
+void unpack_point(uint32_t packed, volatile int& x, volatile int& y, volatile bool& laser_on) {
     x = packed & 0xFFF;              // Extract bits 0-11
     y = (packed >> 12) & 0xFFF;      // Extract bits 12-23
     laser_on = (packed >> 24) & 1;   // Extract bit 24
@@ -77,14 +77,21 @@ bool mystore_save_pattern(const std::vector<patern_point>& data) {
     return true;
 }
 
+File file_always_open;
 bool mystore_load_pattern(std::vector<patern_point>& data) {
+
+    // if file_always_open open, close it
+    if (file_always_open) {
+        file_always_open.close();
+    }
+
     if (!LittleFS.exists(STORAGE_PATH)) {
         Serial.println("# Storage file does not exist");
         return false;
     }
     
-    File file = LittleFS.open(STORAGE_PATH, "r");
-    if (!file) {
+    file_always_open = LittleFS.open(STORAGE_PATH, "r");
+    if (!file_always_open) {
         Serial.println("# Failed to open file for reading");
         return false;
     }
@@ -93,9 +100,9 @@ bool mystore_load_pattern(std::vector<patern_point>& data) {
     
     // Read point count
     uint32_t point_count = 0;
-    if (file.readBytes((char*)&point_count, sizeof(point_count)) != sizeof(point_count)) {
+    if (file_always_open.readBytes((char*)&point_count, sizeof(point_count)) != sizeof(point_count)) {
         Serial.println("# Failed to read point count");
-        file.close();
+        file_always_open.close();
         return false;
     }
     
@@ -103,7 +110,7 @@ bool mystore_load_pattern(std::vector<patern_point>& data) {
     
     if (point_count == 0 || point_count > 100000) {
         Serial.println("# Invalid point count");
-        file.close();
+        file_always_open.close();
         return false;
     }
     
@@ -112,21 +119,71 @@ bool mystore_load_pattern(std::vector<patern_point>& data) {
     // Read and unpack points
     for (uint32_t i = 0; i < point_count; i++) {
         uint32_t packed;
-        if (file.readBytes((char*)&packed, sizeof(packed)) != sizeof(packed)) {
+        if (file_always_open.readBytes((char*)&packed, sizeof(packed)) != sizeof(packed)) {
             Serial.println("# Failed to read point " + String(i));
-            file.close();
+            file_always_open.close();
             data.clear();
             return false;
         }
         
+        volatile int x, y;
+        volatile bool laser_on;
+        unpack_point(packed, x, y, laser_on);
+
         patern_point point;
-        unpack_point(packed, point.x, point.y, point.laser_on);
+        point.x = x;
+        point.y = y;
+        point.laser_on = laser_on;
         data.push_back(point);
     }
     
-    file.close();
+    // file_always_open.close();
     Serial.println("# Pattern loaded (packed) with length: " + String(data.size()));
     return true;
+}
+
+// read line by line from storage, restart when reaching end
+//  i made this, but it is too slow for real-time use
+bool mystore_load_next_patern_point(volatile int& x, volatile int& y, volatile bool& laser_on) {
+    static uint32_t points_remaining = 0;
+    x = 0;
+    y = 0;
+    laser_on = true;
+
+    if (!file_always_open) {
+        Serial.println("# Storage file not open for reading next point");
+        return false;
+    }
+
+    // read point count if starting (again)
+    if (points_remaining == 0) {
+        // set file to start
+        file_always_open.seek(0);
+
+        uint32_t point_count = 0;
+        if (file_always_open.readBytes((char*)&point_count, sizeof(point_count)) != sizeof(point_count)) {
+            Serial.println("# Failed to read point count for next point");
+            file_always_open.close();
+            return false;
+        }
+        
+        points_remaining = point_count;
+    }
+    
+    uint32_t packed;
+    if (file_always_open.readBytes((char*)&packed, sizeof(packed)) != sizeof(packed)) {
+        Serial.println("# Failed to read next point");
+        file_always_open.close();
+        points_remaining = 0;
+        return false;
+    }
+        
+
+    unpack_point(packed, x, y, laser_on);
+    points_remaining--;
+    
+    return true;
+    
 }
 
 void mystore_delete_pattern() {

@@ -39,6 +39,7 @@ void patern_add_line(int x1, int y1, int x2, int y2, bool laser_on, float step_d
         int y = y1 + (int)(dy * t);
         patern_upload_step(x, y, laser_on);
     }
+
 }
 
 void patern_add_square(int xmin, int xmax, int ymin, int ymax, bool laser_on = true)  
@@ -92,7 +93,8 @@ void patern_create_point(int x, int y, bool laser_on)
 }
 
 volatile bool patern_saving = false;
-void patern_get_next_step(int & x, int & y, bool &laser_on)
+
+void patern_get_next_step(volatile int & x, volatile int & y, volatile bool &laser_on)
 {
     if (patern_saving) {
         x = 0;
@@ -101,6 +103,7 @@ void patern_get_next_step(int & x, int & y, bool &laser_on)
         return ;
     }
 
+    // mystore_load_next_patern_point(x, y, laser_on);
     if (patern_points.size() == 0)
     {
         x = 0;
@@ -117,24 +120,22 @@ void patern_get_next_step(int & x, int & y, bool &laser_on)
     return;
 }
 
-vector<patern_point> patern_points_upload;
 
 void patern_upload_start()
 {
-    patern_points_upload.clear();
+    patern_saving = true;
+    patern_points.clear();
 }
 
 void patern_upload_step(int x, int y, bool laser_on)
 {
-    patern_points_upload.push_back({x, y, laser_on});
+    patern_points.push_back({x, y, laser_on});
 }
 void patern_upload_stop()
 {
-    Serial.println("# Uploading patern stop, total points: " + String(patern_points_upload.size()));
-    patern_saving = true;
+    Serial.println("# Uploading patern stop, total points: " + String(patern_points.size()));
     delay(100);
 
-    patern_points = patern_points_upload;
     patern_index = 0;
 
     mystore_save_pattern(patern_points);

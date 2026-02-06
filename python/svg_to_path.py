@@ -228,20 +228,27 @@ def display_svg_path(paths, min_max):
     canvas = tk.Canvas(root, width=width, height=height, bg='white')
     canvas.pack()
 
-    # Draw the paths on the canvas
-    for path in scaled_paths:
-        for i in range(len(path) - 1):
+    # Draw the line to line point on the canvas
+    for path_point in scaled_paths:
+        for i in range(len(path_point) - 1):
             # set line color to black and width to 1
-            canvas.create_line(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1], fill='black', width=2)
+            canvas.create_line(path_point[i][0], path_point[i][1], path_point[i + 1][0], path_point[i + 1][1], fill='black', width=2)
+            if i == 0:
+                color = 'red'  # start point
+            elif i == 1:
+                color = 'orange'  # second point
+            else:
+                color = 'green'  # end point
             # draw a circle at each point
-            canvas.create_oval(path[i][0]-3, path[i][1]-3, path[i][0]+3, path[i][1]+3, fill='red')
-        # draw a red line to next path start if not last path
-        if path != scaled_paths[-1]:
-            next_path = scaled_paths[scaled_paths.index(path) + 1]
-            canvas.create_line(path[-1][0], path[-1][1], next_path[0][0], next_path[0][1], fill='red', dash=(4, 2))
+            canvas.create_oval(path_point[i][0]-3, path_point[i][1]-3, path_point[i][0]+3, path_point[i][1]+3, fill=color)
+
+        # draw line to next path start
+        if path_point != scaled_paths[-1]:
+            next_path = scaled_paths[scaled_paths.index(path_point) + 1]
+            canvas.create_line(path_point[-1][0], path_point[-1][1], next_path[0][0], next_path[0][1], fill='red', dash=(4, 2), arrow=tk.LAST, arrowshape=(8, 10, 3))
         else: #line to first path start
             first_path = scaled_paths[0]
-            canvas.create_line(path[-1][0], path[-1][1], first_path[0][0], first_path[0][1], fill='red', dash=(4, 2))
+            canvas.create_line(path_point[-1][0], path_point[-1][1], first_path[0][0], first_path[0][1], fill='red', dash=(4, 2), arrow=tk.LAST, arrowshape=(8, 10, 3))
 
     # Create a frame for controls
     control_frame = tk.Frame(root)
@@ -300,29 +307,31 @@ def display_svg_path(paths, min_max):
                     laser_on = "TRUE"
                     ser.write(command.encode('utf-8'))
                     ser.flush()
-                    time.sleep(0.01)  # small delay to avoid overwhelming the serial buffer
+                    time.sleep(0.001)  # small delay to avoid overwhelming the serial buffer
                     # response = ser.readline().decode('utf-8').strip()
                     print(f"Sent: {command.strip()}")
                     
                 countert += 1
-                if countert == 14:
+                if countert == 15:
                     break
             
             ser.write("upload_end\n".encode('utf-8'))
             # Wait for upload_end confirmation
-            response = ser.readline().decode('utf-8').strip()
-            print(f"Upload end response: {response}")
-            if response != "# upload_end":
-                ser.close()
-                exit()
-            for attempt in range(10):
+            for attempt in range(15):
                 response = ser.readline().decode('utf-8').strip()
-                print(f"{response}")
-        
+                print(f"Upload end response (attempt {attempt + 1}): {response}")
 
-            # print number of samples:
-            count = sum(len(p) for p in scaled_paths)
-            print(f"Total number of points sent: {count}")
+                # check if response starts with # upload_end
+                if response.startswith("# upload_end"):
+                    print("Upload end confirmed.")
+                    # print number of samples:
+                    count = sum(len(p) for p in scaled_paths)
+                    print(f"Total number of points sent: {count}")
+                    break
+
+            # final check
+            if not response.startswith("# upload_end"):
+                print("Upload end not confirmed, something went wrong.")
 
             # read all responses until timeout
             # while True:
@@ -330,7 +339,6 @@ def display_svg_path(paths, min_max):
             #     print(f"Response: {response}")
 
             ser.close()
-            print("Finished uploading SVG path data.")
         except Exception as e:
             print(f"Error: {e}")
 
@@ -350,7 +358,7 @@ def display_svg_path(paths, min_max):
 
 # Example usage
 if __name__ == "__main__":
-    svg_file = '../SVG/Aircision_logo.svg'  # Replace with your SVG file path
+    svg_file = '../SVG/Aircision_logo_V3.svg'  # Replace with your SVG file path
     path_data, min_max = svg_to_svg_path(svg_file)
     # path_data = sort_paths_by_proximity(path_data)
     # 

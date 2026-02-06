@@ -66,7 +66,9 @@ ESP8266Timer ITimer;
 
 uint32_t ticks_per_step = 3;  // adjust this to change speed
 
-const int INTERRUPT_LASER_DELAY = 1; // in ticks. may never be higher than ticks_per_step
+const int INTERRUPT_LASER_DELAY_OFF = 16; // in ticks. 
+const int INTERRUPT_LASER_DELAY_ON  = 16; // in ticks. 
+
 const int INTERRUPT_DAC_DELAY = 0;   // in ticks, may never be higher than ticks_per_step
 
 volatile uint32_t IPS_counter = 0;
@@ -84,51 +86,55 @@ void writeDAC(uint16_t valueA, uint16_t valueB) {
     
   // Fast GPIO operations instead of digitalWrite
   GPOC = (1 << 15);  // PIN_CS LOW (GPIO15)
-
   SPI.transfer16(cmdB);
-    GPOS = (1 << 15);  // PIN_CS HIGH (GPIO15)
-      GPOC = (1 << 15);  // PIN_CS LOW (GPIO15)
+  GPOS = (1 << 15);  // PIN_CS HIGH (GPIO15)
+
+  GPOC = (1 << 15);  // PIN_CS LOW (GPIO15)
   SPI.transfer16(cmdA);
-  
   GPOS = (1 << 15);  // PIN_CS HIGH (GPIO15)
 }
 
+
 void writeLaser(bool laser_on) {
     // fast switch laser on/off
-    if (laser_on)
+    if (laser_on) {
       GPOS = (1 << PIN_LASER_ENABLE);
-    else
+    } else {
       GPOC = (1 << PIN_LASER_ENABLE);
+    }
 }
 
-volatile bool dac_update = false;
-volatile int next_x = 0;
-volatile int next_y = 0;
-volatile bool laser_update = false;
-volatile bool next_laser_on = false;
+
 void IRAM_ATTR TimerHandler() {
   static int update_dac_countdown = -1;
   static int update_laser_countdown = -1;
   static uint32_t tick_counter   = 0;
+  volatile static int next_x = 0;
+  volatile static int next_y = 0;
+  volatile static bool laser_update = false;
 
   IPS_counter++;
-  tick_counter++;  // This was missing - tick counter never incremented!
+  tick_counter++;  // increment tick counter before checking
 
   if (tick_counter >= ticks_per_step) {  
     tick_counter = 0;  // reset the tick counter
-    int x, y;
     bool laser_on;
-    patern_get_next_step(x, y, laser_on);
-    next_x = x;
-    next_y = y;
-    next_laser_on = laser_on;
+    patern_get_next_step(next_x, next_y, laser_on);
+    if (laser_on != laser_update) {
+      if (laser_on) {
+        laser_update = laser_on;
+        update_laser_countdown = INTERRUPT_LASER_DELAY_ON;
+      } else {
+        laser_update = laser_on;
+        update_laser_countdown = INTERRUPT_LASER_DELAY_OFF;
+      }
+    }
     update_dac_countdown = INTERRUPT_DAC_DELAY;
-    update_laser_countdown = INTERRUPT_LASER_DELAY;
     TPS_counter++;  // Moved here - only count when step is taken
   }
   
   if (update_dac_countdown == 0) {
-    dac_update = true;
+    writeDAC(next_x, next_y);
     update_dac_countdown = -1;  // Mark as completed
   } else if (update_dac_countdown > 0) {
     update_dac_countdown--;
@@ -136,10 +142,11 @@ void IRAM_ATTR TimerHandler() {
 
   if (update_laser_countdown == 0) {
     update_laser_countdown = -1;  // Mark as completed
-    laser_update = true;
+    writeLaser(laser_update);
   } else if (update_laser_countdown > 0) {
     update_laser_countdown--;
   }
+
 }
 
 
@@ -165,7 +172,7 @@ void setup() {
   pinMode(PIN_CS, OUTPUT);
   digitalWrite(PIN_CS, HIGH);  // CSn inactive
   SPI.begin();
-  SPI.setFrequency(15000000);
+  SPI.setFrequency(15000000);  // 15 MHz
   SPI.setDataMode(SPI_MODE0);
   SPI.setBitOrder(MSBFIRST);
 
@@ -197,16 +204,16 @@ void loop() {
     if (uploading) {
       if (input.equals("upload_end")) {
         uploading = false;
-        Serial.println("# upload_end");
         // add line back to first point
         patern_add_line(uploading_previous_x, uploading_previous_y, uploading_first_x, uploading_first_y, uploading_first_laser_on);
         // Serial.println("# Closing line to first point: " + String(uploading_first_x) + "," + String(uploading_first_y) + "," + String(uploading_first_laser_on));
+
         ITimer.detachInterrupt();
 
         patern_upload_stop();
+        Serial.println("# upload_end, pattern length " + String(patern_get_length()));
 
         ITimer.attachInterruptInterval( INTERRUPT_TIME_US, TimerHandler);
-        Serial.println("# Upload complete, pattern length: " + String(patern_get_length()));
       } else {
         // format "x,y,laser_on", example: "2048,1024,TRUE"
         int commaIndex = input.indexOf(',');
@@ -253,14 +260,6 @@ void loop() {
    } else if (input.equals("-")){ 
         ticks_per_step--;
         Serial.println("# ticks_per_step decreased by 1");
-        Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
-   } else if (input.equals("*")){
-        ticks_per_step *= 10;
-        Serial.println("# ticks_per_step multiplied by 10");
-        Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
-   } else if (input.equals("/")){ 
-        ticks_per_step /= 10;
-        Serial.println("# ticks_per_step divided by 10");
         Serial.println("# " + String(ticks_per_step) + " ticks_per_step");
 
    } else if (input.equals("s")) {
@@ -313,15 +312,16 @@ void loop() {
     }
   }
 
-  if (dac_update) {
-    writeDAC(next_x, next_y);
-    dac_update = false;
-  }
+  // if (dac_update) {
+  //   // writeDAC(next_x, next_y);
+  //   dac_update = false;
+  // }
 
-  if (laser_update) {
-    writeLaser(next_laser_on);
-    laser_update = false;
-  }
+  // if (laser_update) {
+  //   // writeLaser(next_laser_on);
+    
+  //   laser_update = false;
+  // }
 
 
   static uint32_t lastTime = millis();
